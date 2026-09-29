@@ -1,0 +1,6 @@
+{
+  "name": "Minimal Chess",
+  "description": "Sleek minimalist chess with real-time multiplayer, move validation, voice chat, and guest mode.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
