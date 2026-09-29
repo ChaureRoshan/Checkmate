@@ -1,3 +1,4 @@
+
 name: Build Checkmate APK
 
 on:
@@ -11,26 +12,46 @@ permissions:
 
 jobs:
   build:
+    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Download source code
       - name: Checkout source
         uses: actions/checkout@v4
 
+      # 2. Install Java
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
+      # 3. Install compatible Gradle
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
 
+      # 4. Generate debug keystore
+      - name: Generate debug keystore
+        run: |
+          keytool -genkeypair \
+            -v \
+            -keystore debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+      # 5. Build APK
       - name: Build debug APK
         run: gradle assembleDebug
 
+      # 6. Upload APK for download
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
