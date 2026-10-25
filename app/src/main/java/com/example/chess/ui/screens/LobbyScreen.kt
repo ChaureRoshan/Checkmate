@@ -236,8 +236,8 @@ fun LobbyScreen(
             }
         }
 
-        // Voice chat status (no login: connects automatically in every online game)
-        item {
+        // Voice setup reminder: only shown while the LiveKit keys are missing
+        if (!liveKitState.isConfigured) item {
             val voiceReady = liveKitState.isConfigured
             Row(
                 modifier = Modifier
