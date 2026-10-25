@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -279,16 +280,50 @@ fun GameScreen(
             isOpponent = true
         )
 
-        // Board
-        ChessBoardView(
-            board = board,
-            selectedPos = selectedPos,
-            legalMoves = legalMoves,
-            perspective = playerColor,
-            theme = theme,
-            onSquareClick = { pos -> viewModel.onSquareSelected(pos) },
-            modifier = Modifier.padding(vertical = 4.dp)
-        )
+        // Board + one mic button in the top corner (opponent) and one in the bottom corner (you)
+        Box(modifier = Modifier.fillMaxWidth()) {
+            ChessBoardView(
+                board = board,
+                selectedPos = selectedPos,
+                legalMoves = legalMoves,
+                perspective = playerColor,
+                theme = theme,
+                onSquareClick = { pos -> viewModel.onSquareSelected(pos) },
+                modifier = Modifier.padding(vertical = 4.dp)
+            )
+
+            if (isOnline) {
+                // Top corner: opponent's voice. Green ring = opponent is speaking. Tap = mute / unmute him.
+                VoiceCornerButton(
+                    icon = if (voiceState.isDeafened) Icons.Default.MicOff else Icons.Default.Mic,
+                    tint = if (voiceState.isDeafened) CrimsonCheck else Color.White,
+                    glowing = voiceState.isOpponentSpeaking,
+                    onClick = { viewModel.voiceChatManager.toggleDeafen() },
+                    testTag = "opponent_mic_button",
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = (-2).dp, y = (-8).dp)
+                )
+                // Bottom corner: your mic. Tap = talk / stop talking.
+                val micLive = voiceState.hasPermission && voiceState.isConnected && !voiceState.isMicMuted
+                VoiceCornerButton(
+                    icon = if (micLive) Icons.Default.Mic else Icons.Default.MicOff,
+                    tint = if (micLive) Color(0xFF81B64C) else Color.White,
+                    glowing = micLive,
+                    onClick = {
+                        if (!voiceState.hasPermission) {
+                            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        } else {
+                            viewModel.voiceChatManager.toggleMicMute()
+                        }
+                    },
+                    testTag = "mic_button",
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .offset(x = (-2).dp, y = 8.dp)
+                )
+            }
+        }
 
         // You
         PlayerCardView(
@@ -304,7 +339,7 @@ fun GameScreen(
         // Voice status (online games only) - one plain line
         if (isOnline) {
             val voiceLine = when {
-                !voiceState.hasPermission -> "Voice: Mic button dabao aur permission do"
+                !voiceState.hasPermission -> "Voice: neeche wala mic button dabao aur permission do"
                 !voiceState.isConnected -> voiceState.statusText
                 voiceState.isMicMuted -> "Voice connected - tumhara mic band hai"
                 else -> "Voice connected - tumhara mic chalu hai"
@@ -329,22 +364,6 @@ fun GameScreen(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (isOnline) {
-                val micLive = voiceState.hasPermission && voiceState.isConnected && !voiceState.isMicMuted
-                GameActionButton(
-                    icon = if (micLive) Icons.Default.Mic else Icons.Default.MicOff,
-                    label = if (micLive) "Mic on" else "Mic off",
-                    tint = if (micLive) Color(0xFF81B64C) else Color.White,
-                    onClick = {
-                        if (!voiceState.hasPermission) {
-                            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                        } else {
-                            viewModel.voiceChatManager.toggleMicMute()
-                        }
-                    },
-                    testTag = "mic_button"
-                )
-            }
             GameActionButton(
                 icon = Icons.Default.Handshake,
                 label = "Draw",
@@ -675,5 +694,38 @@ private fun GameActionButton(
             modifier = Modifier.size(26.dp)
         )
         Text(text = label, fontSize = 11.sp, color = color)
+    }
+}
+
+
+@Composable
+private fun VoiceCornerButton(
+    icon: ImageVector,
+    tint: Color,
+    glowing: Boolean,
+    onClick: () -> Unit,
+    testTag: String,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.72f))
+            .border(
+                width = if (glowing) 2.5.dp else 1.dp,
+                color = if (glowing) Color(0xFF81B64C) else Color.White.copy(alpha = 0.3f),
+                shape = CircleShape
+            )
+            .clickable { onClick() }
+            .testTag(testTag),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(22.dp)
+        )
     }
 }
