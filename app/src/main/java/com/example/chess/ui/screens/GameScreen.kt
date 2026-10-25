@@ -29,6 +29,8 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Handshake
 import androidx.compose.material.icons.filled.ListAlt
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.AlertDialog
@@ -54,6 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
@@ -111,6 +114,7 @@ fun GameScreen(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         viewModel.voiceChatManager.updatePermissionStatus()
+        if (granted) viewModel.voiceChatManager.toggleMicMute()
     }
 
     BackHandler {
@@ -144,31 +148,43 @@ fun GameScreen(
         isSpeaking = voiceState.isRecording || voiceState.isPushToTalk
     )
 
+    val isOnline = gameMode == GameMode.ONLINE_MULTIPLAYER
+    val gameRunning = board.gameStatus == GameStatus.ACTIVE || board.gameStatus == GameStatus.CHECK
+
+    val statusText = when (board.gameStatus) {
+        GameStatus.CHECK -> if (isPlayerTurn || gameMode == GameMode.PASS_AND_PLAY) "Check!" else "Opponent is in check"
+        GameStatus.CHECKMATE -> "Checkmate"
+        GameStatus.STALEMATE -> "Stalemate - draw"
+        GameStatus.RESIGNATION -> "Game over - resigned"
+        GameStatus.TIMEOUT -> "Time is up"
+        GameStatus.DRAW_AGREED -> "Draw agreed"
+        GameStatus.ACTIVE -> when {
+            gameMode == GameMode.PASS_AND_PLAY ->
+                if (board.turn == PieceColor.WHITE) "White to move" else "Black to move"
+            isPlayerTurn -> "Your turn"
+            else -> "Opponent's turn"
+        }
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(ObsidianBg)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        // Top Match Bar
+        // Top: back + whose turn it is
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             IconButton(
                 onClick = {
-                    if (board.gameStatus == GameStatus.ACTIVE || board.gameStatus == GameStatus.CHECK) {
-                        showExitConfirm = true
-                    } else {
-                        onNavigateBack()
-                    }
+                    if (gameRunning) showExitConfirm = true else onNavigateBack()
                 },
                 modifier = Modifier
-                    .size(38.dp)
+                    .size(40.dp)
                     .testTag("match_back_button")
             ) {
                 Icon(
@@ -178,164 +194,83 @@ fun GameScreen(
                 )
             }
 
-            // Match Status / Room Code Header
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (gameMode == GameMode.ONLINE_MULTIPLAYER && roomCode != null) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(ObsidianSurfaceVariant)
-                            .border(1.dp, ObsidianBorder, RoundedCornerShape(8.dp))
-                            .clickable {
-                                clipboardManager.setText(AnnotatedString(roomCode ?: ""))
-                            }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Text(
-                                text = "ROOM: $roomCode",
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                                color = ChampagneGold
-                            )
-                            Icon(
-                                imageVector = Icons.Default.ContentCopy,
-                                contentDescription = "Copy code",
-                                tint = ChampagneGold,
-                                modifier = Modifier.size(12.dp)
-                            )
-                        }
-                    }
-                }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = statusText,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (board.gameStatus == GameStatus.CHECK) CrimsonCheck else Color.White
+                )
+                Text(
+                    text = "${selectedPreset.title} ${selectedPreset.category}",
+                    fontSize = 12.sp,
+                    color = Color.Gray
+                )
+            }
 
-                // Time Control preset chip
-                Box(
+            if (isOnline && roomCode != null) {
+                Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .background(ObsidianSurfaceVariant)
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .clickable { clipboardManager.setText(AnnotatedString(roomCode ?: "")) }
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = "⏱ ${selectedPreset.title} ${selectedPreset.category}",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = ChampagneGold
-                    )
-                }
-
-                // Check or Turn Badge
-                val statusText = when (board.gameStatus) {
-                    GameStatus.CHECK -> "CHECK!"
-                    GameStatus.CHECKMATE -> "CHECKMATE"
-                    GameStatus.STALEMATE -> "STALEMATE"
-                    GameStatus.RESIGNATION -> "RESIGNED"
-                    GameStatus.TIMEOUT -> "FLAG FALLEN (0:00)"
-                    GameStatus.DRAW_AGREED -> "DRAW"
-                    GameStatus.ACTIVE -> if (board.turn == PieceColor.WHITE) "White to move" else "Black to move"
-                }
-
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(
-                            when (board.gameStatus) {
-                                GameStatus.CHECK -> CrimsonCheck.copy(alpha = 0.2f)
-                                GameStatus.TIMEOUT -> CrimsonCheck.copy(alpha = 0.3f)
-                                else -> ObsidianSurfaceVariant
-                            }
-                        )
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = statusText,
-                        fontSize = 11.sp,
+                        text = roomCode ?: "",
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
-                        color = when (board.gameStatus) {
-                            GameStatus.CHECK -> CrimsonCheck
-                            GameStatus.TIMEOUT -> CrimsonCheck
-                            else -> Color.LightGray
-                        }
+                        color = Color.White
                     )
-                }
-            }
-
-            // Move List and Flip Board Actions
-            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                IconButton(
-                    onClick = { viewModel.flipBoardPerspective() },
-                    modifier = Modifier.size(38.dp)
-                ) {
                     Icon(
-                        imageVector = Icons.Default.SwapVert,
-                        contentDescription = "Flip Board",
-                        tint = ChampagneGold
-                    )
-                }
-
-                IconButton(
-                    onClick = { showMoveHistoryModal = true },
-                    modifier = Modifier
-                        .size(38.dp)
-                        .testTag("move_history_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ListAlt,
-                        contentDescription = "Move History",
-                        tint = Color.White
+                        imageVector = Icons.Default.ContentCopy,
+                        contentDescription = "Copy room code",
+                        tint = Color.Gray,
+                        modifier = Modifier.size(13.dp)
                     )
                 }
             }
         }
 
-        // Waiting for Opponent Overlay (in custom room)
+        // Waiting for the other player
         if (isWaitingForOpponent) {
-            Card(
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = ObsidianSurface),
-                border = androidx.compose.foundation.BorderStroke(1.dp, ChampagneGold),
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp)
+                    .padding(top = 6.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(ObsidianSurface)
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(22.dp),
-                        color = ChampagneGold,
-                        strokeWidth = 2.dp
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    color = Color(0xFF81B64C),
+                    strokeWidth = 2.dp
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Dusre player ka intezaar...",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
                     )
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Waiting for opponent...",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Text(
-                            text = "Share Room Code '$roomCode' with a friend to begin.",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    Text(
+                        text = "Dost ko ye code do: $roomCode",
+                        fontSize = 12.sp,
+                        color = Color.Gray
+                    )
                 }
             }
         }
 
-        // Opponent Player Card
+        // Opponent
         PlayerCardView(
-            player = opponent,
+            player = opponent.copy(isSpeaking = voiceState.isOpponentSpeaking),
             color = opponentColor,
             remainingTimeMs = if (opponentColor == PieceColor.WHITE) whiteClockMs else blackClockMs,
             isTurn = isOpponentTurn,
@@ -344,7 +279,7 @@ fun GameScreen(
             isOpponent = true
         )
 
-        // Main Chess Board
+        // Board
         ChessBoardView(
             board = board,
             selectedPos = selectedPos,
@@ -355,20 +290,7 @@ fun GameScreen(
             modifier = Modifier.padding(vertical = 4.dp)
         )
 
-        // Live Voice Chat Bar
-        VoiceChatBar(
-            voiceState = voiceState,
-            opponentName = opponent.name,
-            onToggleMic = { viewModel.voiceChatManager.toggleMicMute() },
-            onStartPushToTalk = { viewModel.voiceChatManager.startPushToTalk() },
-            onStopPushToTalk = { viewModel.voiceChatManager.stopPushToTalk() },
-            onToggleDeafen = { viewModel.voiceChatManager.toggleDeafen() },
-            onRequestPermission = {
-                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-            }
-        )
-
-        // User Player Card
+        // You
         PlayerCardView(
             player = playerInfo,
             color = playerColor,
@@ -379,55 +301,77 @@ fun GameScreen(
             isOpponent = false
         )
 
-        // Match Bottom Action Controls
+        // Voice status (online games only) - one plain line
+        if (isOnline) {
+            val voiceLine = when {
+                !voiceState.hasPermission -> "Voice: Mic button dabao aur permission do"
+                !voiceState.isConnected -> voiceState.statusText
+                voiceState.isMicMuted -> "Voice connected - tumhara mic band hai"
+                else -> "Voice connected - tumhara mic chalu hai"
+            }
+            Text(
+                text = voiceLine,
+                fontSize = 12.sp,
+                color = if (voiceState.isConnected && !voiceState.isMicMuted) Color(0xFF81B64C) else Color.Gray,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 2.dp)
+            )
+        }
+
+        // Bottom bar: icon + label, like chess.com
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                .clip(RoundedCornerShape(12.dp))
+                .background(ObsidianSurface)
+                .padding(vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Offer Draw Button
-            OutlinedButton(
+            if (isOnline) {
+                val micLive = voiceState.hasPermission && voiceState.isConnected && !voiceState.isMicMuted
+                GameActionButton(
+                    icon = if (micLive) Icons.Default.Mic else Icons.Default.MicOff,
+                    label = if (micLive) "Mic on" else "Mic off",
+                    tint = if (micLive) Color(0xFF81B64C) else Color.White,
+                    onClick = {
+                        if (!voiceState.hasPermission) {
+                            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        } else {
+                            viewModel.voiceChatManager.toggleMicMute()
+                        }
+                    },
+                    testTag = "mic_button"
+                )
+            }
+            GameActionButton(
+                icon = Icons.Default.Handshake,
+                label = "Draw",
+                enabled = gameRunning,
                 onClick = { viewModel.offerDraw() },
-                enabled = board.gameStatus == GameStatus.ACTIVE || board.gameStatus == GameStatus.CHECK,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("offer_draw_button"),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                border = androidx.compose.foundation.BorderStroke(1.dp, ObsidianBorder),
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Handshake,
-                    contentDescription = "Draw",
-                    modifier = Modifier.size(16.dp),
-                    tint = ChampagneGold
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Draw", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            }
-
-            // Resign Button
-            OutlinedButton(
+                testTag = "offer_draw_button"
+            )
+            GameActionButton(
+                icon = Icons.Default.Flag,
+                label = "Resign",
+                tint = CrimsonCheck,
+                enabled = gameRunning,
                 onClick = { showResignConfirm = true },
-                enabled = board.gameStatus == GameStatus.ACTIVE || board.gameStatus == GameStatus.CHECK,
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("resign_button"),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = CrimsonCheck),
-                border = androidx.compose.foundation.BorderStroke(1.dp, CrimsonCheck.copy(alpha = 0.5f)),
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Flag,
-                    contentDescription = "Resign",
-                    modifier = Modifier.size(16.dp),
-                    tint = CrimsonCheck
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Resign", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            }
+                testTag = "resign_button"
+            )
+            GameActionButton(
+                icon = Icons.Default.SwapVert,
+                label = "Flip",
+                onClick = { viewModel.flipBoardPerspective() },
+                testTag = "flip_button"
+            )
+            GameActionButton(
+                icon = Icons.Default.ListAlt,
+                label = "Moves",
+                onClick = { showMoveHistoryModal = true },
+                testTag = "move_history_button"
+            )
         }
     }
 
@@ -701,5 +645,35 @@ fun GameScreen(
                 }
             }
         )
+    }
+}
+
+
+@Composable
+private fun GameActionButton(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    testTag: String,
+    modifier: Modifier = Modifier,
+    tint: Color = Color.White,
+    enabled: Boolean = true
+) {
+    val color = if (enabled) tint else Color.Gray.copy(alpha = 0.5f)
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(enabled = enabled) { onClick() }
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .testTag(testTag),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = color,
+            modifier = Modifier.size(26.dp)
+        )
+        Text(text = label, fontSize = 11.sp, color = color)
     }
 }
