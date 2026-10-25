@@ -83,6 +83,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private val ChessGreen = Color(0xFF81B64C)
+
 @Composable
 fun LobbyScreen(
     viewModel: GameViewModel,
@@ -110,286 +112,107 @@ fun LobbyScreen(
         modifier = modifier
             .fillMaxSize()
             .background(ObsidianBg)
-            .padding(horizontal = 18.dp),
-        contentPadding = PaddingValues(top = 20.dp, bottom = 40.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+            .padding(horizontal = 16.dp),
+        contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // App Header & Branding
+        // Header
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text(
-                        text = "MINIMAL CHESS",
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        letterSpacing = 2.sp,
-                        color = ChampagneGold
-                    )
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(7.dp)
-                                .clip(CircleShape)
-                                .background(EmeraldAccent)
-                        )
-                        Text(
-                            text = "Cloud Multiplayer & Real-Time Voice Active",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = EmeraldAccent
-                        )
-                    }
-                }
-
-                // Theme selector button
-                IconButton(
-                    onClick = { showThemeDialog = true },
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(ObsidianSurfaceVariant)
-                        .border(1.dp, ObsidianBorder, CircleShape)
-                        .testTag("theme_selector_button")
-                ) {
+                Text(
+                    text = "Checkmate",
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White
+                )
+                IconButton(onClick = { showThemeDialog = true }) {
                     Icon(
                         imageVector = Icons.Default.Palette,
-                        contentDescription = "Themes",
-                        tint = ChampagneGold,
-                        modifier = Modifier.size(20.dp)
+                        contentDescription = "Board theme",
+                        tint = Color.White.copy(alpha = 0.7f)
                     )
                 }
             }
         }
 
-        // Guest Profile Card
+        // Profile (guest, no login)
         item {
-            Card(
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = ObsidianSurface),
-                border = androidx.compose.foundation.BorderStroke(1.dp, ObsidianBorder),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(CircleShape)
-                                    .background(ChampagneGold.copy(alpha = 0.2f))
-                                    .border(1.5.dp, ChampagneGold, CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Person,
-                                    contentDescription = "Profile",
-                                    tint = ChampagneGold,
-                                    modifier = Modifier.size(28.dp)
-                                )
-                            }
-
-                            Column {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Text(
-                                        text = userProfile.displayName,
-                                        fontSize = 17.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
-                                    IconButton(
-                                        onClick = { showEditNameDialog = true },
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Edit,
-                                            contentDescription = "Edit Name",
-                                            tint = ChampagneGold,
-                                            modifier = Modifier.size(15.dp)
-                                        )
-                                    }
-                                }
-
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(ChampagneGold.copy(alpha = 0.15f))
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                                    ) {
-                                        Text(
-                                            text = "GUEST MODE",
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = ChampagneGold
-                                        )
-                                    }
-
-                                    Text(
-                                        text = "No account needed",
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-
-                        // Rating Badge
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(ChampagneGold.copy(alpha = 0.15f))
-                                .border(1.dp, ChampagneGold.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
-                                .padding(horizontal = 12.dp, vertical = 8.dp)
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(
-                                    text = "${userProfile.rating}",
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = ChampagneGold
-                                )
-                                Text(
-                                    text = "RATING",
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = ChampagneGoldDark
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Stats Bar
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(ObsidianSurfaceVariant)
-                            .padding(vertical = 10.dp, horizontal = 14.dp),
-                        horizontalArrangement = Arrangement.SpaceAround
-                    ) {
-                        StatItem(label = "Wins", value = "${userProfile.wins}", color = EmeraldAccent)
-                        StatItem(label = "Losses", value = "${userProfile.losses}", color = CrimsonCheck)
-                        StatItem(label = "Draws", value = "${userProfile.draws}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        val total = userProfile.wins + userProfile.losses + userProfile.draws
-                        val winPct = if (total > 0) "${(userProfile.wins * 100) / total}%" else "--"
-                        StatItem(label = "Win Rate", value = winPct, color = ElectricCyan)
-                    }
-                }
-            }
-        }
-
-        // Voice Chat Highlight Banner
-        item {
-            Surface(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
-                    .border(1.dp, if (liveKitState.isConfigured) EmeraldAccent.copy(alpha = 0.5f) else ElectricCyan.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
-                    .clickable { showLiveKitDialog = true },
-                color = if (liveKitState.isConfigured) EmeraldAccent.copy(alpha = 0.08f) else ElectricCyan.copy(alpha = 0.08f)
+                    .background(ObsidianSurface)
+                    .clickable { showEditNameDialog = true }
+                    .padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Row(
-                    modifier = Modifier.padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(ChessGreen.copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(if (liveKitState.isConfigured) EmeraldAccent.copy(alpha = 0.2f) else ElectricCyan.copy(alpha = 0.2f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Mic,
-                            contentDescription = "Voice",
-                            tint = if (liveKitState.isConfigured) EmeraldAccent else ElectricCyan,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = "LiveKit Cloud Voice",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(if (liveKitState.isConfigured) EmeraldAccent.copy(alpha = 0.2f) else ChampagneGold.copy(alpha = 0.15f))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = if (liveKitState.isConfigured) "LIVEKIT ACTIVE" else "TAP TO CONFIGURE",
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (liveKitState.isConfigured) EmeraldAccent else ChampagneGold
-                                )
-                            }
-                        }
-                        Text(
-                            text = if (liveKitState.isConfigured)
-                                "Project: Chess (${liveKitState.serverUrl.replace("wss://", "")})"
-                            else
-                                "Configured for ${liveKitState.serverUrl.replace("wss://", "")}. Tap to add API keys.",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        }
-
-        // Time Control Selector Row
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "CHESS CLOCK (TIME CONTROL)",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp,
-                        color = ChampagneGold
+                    Icon(
+                        imageVector = Icons.Default.Person,
+                        contentDescription = null,
+                        tint = ChessGreen,
+                        modifier = Modifier.size(24.dp)
                     )
+                }
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "${selectedPreset.title} • ${selectedPreset.category}",
-                        fontSize = 12.sp,
+                        text = userProfile.displayName,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
+                    Text(
+                        text = "Rating ${userProfile.rating}  \u2022  ${userProfile.wins}W ${userProfile.losses}L ${userProfile.draws}D",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = "Edit name",
+                    tint = Color.Gray,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+
+        // Big Play button + time control
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = {
+                        viewModel.startQuickMatch()
+                        onNavigateToGame()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(70.dp)
+                        .testTag("quick_match_button"),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ChessGreen,
+                        contentColor = Color.White
+                    )
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(text = "Play", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+                        Text(
+                            text = "${selectedPreset.title} \u2022 ${selectedPreset.category} \u2022 Online",
+                            fontSize = 12.sp,
+                            color = Color.White.copy(alpha = 0.85f)
+                        )
+                    }
                 }
 
                 Row(
@@ -401,123 +224,62 @@ fun LobbyScreen(
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(if (isSelected) ChampagneGold else ObsidianSurfaceVariant)
-                                .border(
-                                    1.dp,
-                                    if (isSelected) ChampagneGold else ObsidianBorder,
-                                    RoundedCornerShape(10.dp)
-                                )
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(if (isSelected) ChessGreen else ObsidianSurface)
                                 .clickable { viewModel.selectTimeControl(preset) }
-                                .padding(vertical = 8.dp)
+                                .padding(vertical = 9.dp)
                                 .testTag("time_control_${preset.title}"),
                             contentAlignment = Alignment.Center
                         ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(
-                                    text = preset.title,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isSelected) Color.Black else Color.White
-                                )
-                                Text(
-                                    text = preset.category,
-                                    fontSize = 9.sp,
-                                    color = if (isSelected) Color.Black.copy(alpha = 0.8f) else Color.Gray
-                                )
-                            }
+                            Text(
+                                text = preset.title,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.7f)
+                            )
                         }
                     }
                 }
             }
         }
 
-        // Game Mode Section Title
+        // Voice chat status (no login: connects automatically in every online game)
         item {
-            Text(
-                text = "PLAY CHESS",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.sp,
-                color = ChampagneGold
-            )
-        }
-
-        // Quick Match Primary Hero Card
-        item {
-            Box(
+            val voiceReady = liveKitState.isConfigured
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(ChampagneGoldDark, ChampagneGold)
-                        )
-                    )
-                    .clickable {
-                        viewModel.startQuickMatch()
-                        onNavigateToGame()
-                    }
-                    .padding(20.dp)
-                    .testTag("quick_match_button")
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(ObsidianSurface)
+                    .clickable { showLiveKitDialog = true }
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = "QUICK MATCH",
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color.Black
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(Color.Black.copy(alpha = 0.2f))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = "ONLINE",
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.Black
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Instant 10-minute game with live guest players & voice chat",
-                            fontSize = 12.sp,
-                            color = Color.Black.copy(alpha = 0.8f)
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .size(46.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = "Play",
-                            tint = ChampagneGold,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
+                Icon(
+                    imageVector = Icons.Default.Mic,
+                    contentDescription = null,
+                    tint = if (voiceReady) ChessGreen else ChampagneGold,
+                    modifier = Modifier.size(22.dp)
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (voiceReady) "Voice chat ready" else "Voice chat setup needed",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Text(
+                        text = if (voiceReady) "Online game me apne aap judta hai. Login nahi chahiye."
+                        else "Tap karke LiveKit key daalo.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }
 
-        // Online Players (no account: everyone is a guest) - tap Challenge to send a direct request
+        // Online players
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(
@@ -527,23 +289,22 @@ fun LobbyScreen(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(8.dp)
+                            .size(9.dp)
                             .clip(CircleShape)
-                            .background(if (onlinePlayers.isNotEmpty()) EmeraldAccent else ChampagneGold.copy(alpha = 0.5f))
+                            .background(if (onlinePlayers.isNotEmpty()) ChessGreen else Color.Gray)
                     )
                     Text(
-                        text = "ONLINE PLAYERS (${onlinePlayers.size})",
-                        fontSize = 12.sp,
+                        text = "Online now (${onlinePlayers.size})",
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp,
-                        color = ChampagneGold
+                        color = Color.White
                     )
                 }
 
                 if (onlinePlayers.isEmpty()) {
                     Text(
                         text = "Abhi koi aur online nahi hai. Dost ko app khulwao, wo yahan dikhega.",
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.testTag("no_online_players")
                     )
@@ -561,132 +322,78 @@ fun LobbyScreen(
             }
         }
 
-        // Secondary Modes Grid / Cards
+        // More ways to play
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                // Host / Join Private Room
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "More ways to play",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(ObsidianSurface)
                 ) {
-                    ModeSquareCard(
-                        title = "Host Room",
-                        subtitle = "Create code to invite a friend",
+                    PlayOptionRow(
                         icon = Icons.Default.AddCircleOutline,
-                        accentColor = ElectricCyan,
+                        title = "Play a friend",
+                        subtitle = "Room code banao, dost ko bhejo",
                         onClick = {
-                            viewModel.createOnlineRoom(timeMinutes = 10)
+                            viewModel.createOnlineRoom(timeMinutes = selectedPreset.minutes)
                             onNavigateToGame()
                         },
-                        modifier = Modifier.weight(1f),
                         testTag = "host_room_button"
                     )
-
-                    ModeSquareCard(
-                        title = "Join Room",
-                        subtitle = "Enter 6-digit match code",
+                    PlayOptionRow(
                         icon = Icons.Default.Group,
-                        accentColor = ElectricCyan,
+                        title = "Join with code",
+                        subtitle = "Dost ka room code daalo",
                         onClick = { showJoinRoomDialog = true },
-                        modifier = Modifier.weight(1f),
                         testTag = "join_room_button"
                     )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    ModeSquareCard(
-                        title = "Vs Bot",
-                        subtitle = "Novice, Adept, or Master",
+                    PlayOptionRow(
                         icon = Icons.Default.SmartToy,
-                        accentColor = ChampagneGold,
+                        title = "Play bots",
+                        subtitle = "Novice, Adept ya Master",
                         onClick = { showBotDifficultyDialog = true },
-                        modifier = Modifier.weight(1f),
                         testTag = "vs_bot_button"
                     )
-
-                    ModeSquareCard(
-                        title = "Pass & Play",
-                        subtitle = "2 players, 1 screen",
+                    PlayOptionRow(
                         icon = Icons.Default.Psychology,
-                        accentColor = EmeraldAccent,
+                        title = "Pass & play",
+                        subtitle = "2 players, 1 phone",
                         onClick = {
                             viewModel.startPassAndPlay()
                             onNavigateToGame()
                         },
-                        modifier = Modifier.weight(1f),
                         testTag = "pass_and_play_button"
                     )
                 }
             }
         }
 
-        // Recent Games Section
+        // Recent games
         item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 10.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Text(
+                text = "Recent games",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+        }
+        if (recentGames.isEmpty()) {
+            item {
                 Text(
-                    text = "MATCH HISTORY",
+                    text = "Abhi tak koi game nahi khela. Upar Play dabao.",
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp,
-                    color = ChampagneGold
-                )
-
-                Text(
-                    text = "${recentGames.size} Games",
-                    fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-        }
-
-        if (recentGames.isEmpty()) {
-            item {
-                Card(
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = ObsidianSurface),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, ObsidianBorder),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.History,
-                            contentDescription = "No matches",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(32.dp)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "No Games Played Yet",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Text(
-                            text = "Play a quick online match or practice against the bot to start recording your history.",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 4.dp),
-                            lineHeight = 16.sp
-                        )
-                    }
-                }
-            }
         } else {
-            items(recentGames.take(8)) { game ->
+            items(recentGames.take(5)) { game ->
                 GameHistoryCard(game = game)
             }
         }
@@ -1077,6 +784,42 @@ fun LobbyScreen(
 }
 
 @Composable
+fun PlayOptionRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    testTag: String,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 13.dp)
+            .testTag(testTag),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = ChessGreen,
+            modifier = Modifier.size(24.dp)
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = title, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Text(
+                text = subtitle,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Text(text = "\u203A", fontSize = 22.sp, color = Color.Gray)
+    }
+}
+
+@Composable
 fun OnlinePlayerRow(
     player: OnlinePlayer,
     onChallenge: () -> Unit,
@@ -1118,13 +861,13 @@ fun OnlinePlayerRow(
                 Text(
                     text = if (player.inGame) "Rating ${player.rating} - game me hai" else "Rating ${player.rating} - online",
                     fontSize = 11.sp,
-                    color = if (player.inGame) ChampagneGold else EmeraldAccent
+                    color = if (player.inGame) ChampagneGold else ChessGreen
                 )
             }
             Button(
                 onClick = onChallenge,
                 enabled = !player.inGame,
-                colors = ButtonDefaults.buttonColors(containerColor = ChampagneGold, contentColor = Color.Black),
+                colors = ButtonDefaults.buttonColors(containerColor = ChessGreen, contentColor = Color.White),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                 modifier = Modifier.testTag("challenge_${player.id}")
             ) {
