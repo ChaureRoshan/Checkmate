@@ -137,6 +137,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val handledChallenges = mutableSetOf<String>()
     private var clockSyncedFromCloud = false
     private var activeIncrementSeconds: Int? = null
+    private var timeoutHandled = false
 
     /** Online games use the increment the host created the room with, so both players get the same clock. */
     private fun currentIncrementSeconds(): Int =
@@ -293,6 +294,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         clockSyncedFromCloud = true // host decides the time control
+        timeoutHandled = false
         startCloudRoomListener(code, isHost = true)
         connectVoice(code)
 
@@ -346,6 +348,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         clockSyncedFromCloud = false
+        timeoutHandled = false
         startCloudRoomListener(cleanCode, isHost = false)
         connectVoice(cleanCode)
 
@@ -388,6 +391,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             clockSyncedFromCloud = isHost
+            timeoutHandled = false
             startCloudRoomListener(code, isHost = isHost)
             connectVoice(code)
             resetGame(timeMinutes = _selectedPreset.value.minutes)
@@ -427,6 +431,36 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         try { PieceType.valueOf(it) } catch (_: Exception) { null }
                     }
                     executeOpponentMove(from, to, prom)
+                    // The mover's own phone knows his exact time (incl. increment): use it
+                    if (_playerColor.value == PieceColor.WHITE) {
+                        _blackClockMs.value = cloudRoom.blackClockMs
+                    } else {
+                        _whiteClockMs.value = cloudRoom.whiteClockMs
+                    }
+                }
+            }
+
+            // The other phone says someone's time is over -> end the game here too
+            val timeoutLoser = cloudRoom.timeoutLoserId
+            val boardState = _board.value.gameStatus
+            if (timeoutLoser != null && !timeoutHandled &&
+                (boardState == GameStatus.ACTIVE || boardState == GameStatus.CHECK)
+            ) {
+                timeoutHandled = true
+                val iLost = timeoutLoser == _userProfile.value.guestId
+                val loserColor = if (iLost) _playerColor.value else _playerColor.value.opposite()
+                if (loserColor == PieceColor.WHITE) _whiteClockMs.value = 0L else _blackClockMs.value = 0L
+                _board.value = _board.value.copy(
+                    gameStatus = GameStatus.TIMEOUT,
+                    winner = loserColor.opposite()
+                )
+                soundEffects.playTimeoutSound()
+                if (iLost) {
+                    soundEffects.playDefeatSound()
+                    onGameEnded("LOSS")
+                } else {
+                    soundEffects.playVictorySound()
+                    onGameEnded("WIN")
                 }
             }
 
@@ -701,6 +735,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun executeMove(from: Position, to: Position, promotion: PieceType?) {
         val currBoard = _board.value
+        // Game over (time out, resign, mate...): nothing can be played any more
+        if (currBoard.gameStatus != GameStatus.ACTIVE && currBoard.gameStatus != GameStatus.CHECK) return
         val movingPiece = currBoard.pieceAt(from) ?: return
         val isCapture = currBoard.pieceAt(to) != null || (movingPiece.type == PieceType.PAWN && currBoard.enPassantTarget == to)
 
@@ -770,6 +806,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun executeOpponentMove(from: Position, to: Position, promotion: PieceType?) {
         val currBoard = _board.value
+        if (currBoard.gameStatus != GameStatus.ACTIVE && currBoard.gameStatus != GameStatus.CHECK) return
         val movingPiece = currBoard.pieceAt(from) ?: return
         val isCapture = currBoard.pieceAt(to) != null || (movingPiece.type == PieceType.PAWN && currBoard.enPassantTarget == to)
 
@@ -818,6 +855,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun notifyTimeoutOnline(loserColor: PieceColor) {
+        if (_gameMode.value != GameMode.ONLINE_MULTIPLAYER) return
+        val code = _roomCode.value ?: return
+        timeoutHandled = true
+        val loserId = if (loserColor == _playerColor.value) _userProfile.value.guestId else _opponent.value.id
+        viewModelScope.launch { FirebaseRealtimeManager.sendTimeout(code, loserId) }
+    }
+
     private fun startClock() {
         clockJob?.cancel()
         clockJob = viewModelScope.launch {
@@ -853,6 +898,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                             winner = PieceColor.BLACK
                         )
                         soundEffects.playTimeoutSound()
+                        notifyTimeoutOnline(PieceColor.WHITE)
                         if (_playerColor.value == PieceColor.BLACK) {
                             soundEffects.playVictorySound()
                             onGameEnded("WIN")
@@ -879,6 +925,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                             winner = PieceColor.WHITE
                         )
                         soundEffects.playTimeoutSound()
+                        notifyTimeoutOnline(PieceColor.BLACK)
                         if (_playerColor.value == PieceColor.WHITE) {
                             soundEffects.playVictorySound()
                             onGameEnded("WIN")
@@ -949,6 +996,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun onGameEnded(result: String) {
         clockJob?.cancel()
+        botJob?.cancel()
         val durationSeconds = ((System.currentTimeMillis() - matchStartTime) / 1000).coerceAtLeast(1)
         val pgn = _board.value.moveHistory.joinToString(" ") { it.notation }
 
