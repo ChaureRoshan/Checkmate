@@ -273,7 +273,11 @@ object FirebaseRealtimeManager {
         }
     }
 
-    suspend fun findOrCreateQuickMatch(guest: PlayerInfo, timeMinutes: Int): Pair<String, Boolean> = withContext(Dispatchers.IO) {
+    suspend fun findOrCreateQuickMatch(
+        guest: PlayerInfo,
+        timeMinutes: Int,
+        incrementSeconds: Int = 0
+    ): Pair<String, Boolean> = withContext(Dispatchers.IO) {
         try {
             // Check for available open rooms in chess_rooms
             val request = Request.Builder()
@@ -306,7 +310,7 @@ object FirebaseRealtimeManager {
 
         // Otherwise create new room code
         val newCode = "KNG-${(100..999).random()}"
-        createRoom(newCode, guest, timeMinutes)
+        createRoom(newCode, guest, timeMinutes, incrementSeconds)
         (newCode to true) // host
     }
 
