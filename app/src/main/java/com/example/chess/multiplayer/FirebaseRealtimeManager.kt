@@ -54,7 +54,8 @@ data class CloudRoom(
     val voiceHostSpeaking: Boolean = false,
     val voiceHostAmp: Float = 0f,
     val voiceGuestSpeaking: Boolean = false,
-    val voiceGuestAmp: Float = 0f
+    val voiceGuestAmp: Float = 0f,
+    val timeoutLoserId: String? = null   // set when a player's clock ran out
 )
 
 data class OnlinePlayer(
@@ -268,6 +269,23 @@ object FirebaseRealtimeManager {
 
             val response = httpClient.newCall(request).execute()
             response.isSuccessful
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** Tell the other phone that [loserId] ran out of time. Kept in its own field so a late move can't overwrite it. */
+    suspend fun sendTimeout(code: String, loserId: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val json = JSONObject().apply {
+                put("status", "TIMEOUT")
+                put("timeoutLoserId", loserId)
+            }
+            val request = Request.Builder()
+                .url("$DATABASE_URL/chess_rooms/$code.json")
+                .patch(json.toString().toRequestBody(jsonMediaType))
+                .build()
+            httpClient.newCall(request).execute().use { it.isSuccessful }
         } catch (e: Exception) {
             false
         }
@@ -583,7 +601,8 @@ object FirebaseRealtimeManager {
             voiceHostSpeaking = json.optBoolean("voiceHostSpeaking", false),
             voiceHostAmp = json.optDouble("voiceHostAmp", 0.0).toFloat(),
             voiceGuestSpeaking = json.optBoolean("voiceGuestSpeaking", false),
-            voiceGuestAmp = json.optDouble("voiceGuestAmp", 0.0).toFloat()
+            voiceGuestAmp = json.optDouble("voiceGuestAmp", 0.0).toFloat(),
+            timeoutLoserId = if (json.has("timeoutLoserId") && !json.isNull("timeoutLoserId")) json.optString("timeoutLoserId") else null
         )
     }
 }
