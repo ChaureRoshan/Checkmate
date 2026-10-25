@@ -2,84 +2,83 @@ package com.example.chess.voice
 
 import android.content.Context
 import android.util.Log
+import com.example.BuildConfig
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 data class LiveKitVoiceState(
-    val serverUrl: String = "wss://chess-pvoekttu.livekit.cloud",
-    val projectId: String = "p_65ebmc1ge32",
-    val isConfigured: Boolean = false,
-    val isConnected: Boolean = false,
-    val currentRoom: String? = null,
-    val activeToken: String? = null
+    val serverUrl: String = LiveKitVoiceManager.SERVER_URL,
+    val projectId: String = LiveKitVoiceManager.PROJECT_ID,
+    val isConfigured: Boolean = false
 )
 
-class LiveKitVoiceManager(private val context: Context) {
+/**
+ * Holds the LiveKit credentials and creates join tokens.
+ *
+ * Keys come from (1) the in-app dialog (overrides) or (2) BuildConfig, which is filled from
+ * .env / GitHub secrets at build time. NOTE: a secret that ships inside an APK can be extracted.
+ * That is acceptable for a personal / friends-only app; for a public release, move token
+ * creation to a tiny server and ship only the token endpoint.
+ */
+class LiveKitVoiceManager(context: Context) {
+
+    companion object {
+        const val SERVER_URL = "wss://chess-pvoekttu.livekit.cloud"
+        const val PROJECT_ID = "p_65ebmc1ge32"
+        private const val PLACEHOLDER_PREFIX = "YOUR_"
+    }
 
     private val prefs = context.getSharedPreferences("livekit_voice_prefs", Context.MODE_PRIVATE)
 
-    private val _state = MutableStateFlow(
-        LiveKitVoiceState(
-            serverUrl = "wss://chess-pvoekttu.livekit.cloud",
-            projectId = "p_65ebmc1ge32",
-            isConfigured = prefs.getString("livekit_api_key", "").isNullOrEmpty().not()
-        )
-    )
+    private val _state = MutableStateFlow(LiveKitVoiceState(isConfigured = hasCredentials()))
     val state: StateFlow<LiveKitVoiceState> = _state.asStateFlow()
 
+    val serverUrl: String get() = SERVER_URL
+
+    /** Only the user-entered override (used to prefill the dialog). */
     fun getApiKey(): String = prefs.getString("livekit_api_key", "") ?: ""
     fun getApiSecret(): String = prefs.getString("livekit_api_secret", "") ?: ""
+
+    private fun effectiveKey(): String =
+        getApiKey().ifEmpty { buildValue(BuildConfig.LIVEKIT_API_KEY) }
+
+    private fun effectiveSecret(): String =
+        getApiSecret().ifEmpty { buildValue(BuildConfig.LIVEKIT_API_SECRET) }
+
+    private fun buildValue(v: String): String =
+        if (v.isBlank() || v.startsWith(PLACEHOLDER_PREFIX)) "" else v
+
+    private fun hasCredentials(): Boolean =
+        effectiveKey().isNotEmpty() && effectiveSecret().isNotEmpty()
 
     fun saveCredentials(apiKey: String, apiSecret: String) {
         prefs.edit()
             .putString("livekit_api_key", apiKey.trim())
             .putString("livekit_api_secret", apiSecret.trim())
             .apply()
-
-        _state.value = _state.value.copy(
-            isConfigured = apiKey.trim().isNotEmpty() && apiSecret.trim().isNotEmpty()
-        )
+        _state.value = _state.value.copy(isConfigured = hasCredentials())
     }
 
-    fun joinRoom(
-        roomName: String,
-        participantIdentity: String,
-        participantName: String
-    ): String? {
-        val apiKey = getApiKey()
-        val apiSecret = getApiSecret()
-
-        if (apiKey.isEmpty() || apiSecret.isEmpty()) {
-            Log.d("LiveKitVoiceManager", "LiveKit API Key or Secret not configured yet")
+    /** Returns a signed join token, or null if no credentials are configured. */
+    fun createToken(roomName: String, identity: String, displayName: String): String? {
+        val key = effectiveKey()
+        val secret = effectiveSecret()
+        if (key.isEmpty() || secret.isEmpty()) {
+            Log.d("LiveKitVoiceManager", "LiveKit API key/secret not configured")
             return null
         }
-
         return try {
-            val token = LiveKitTokenGenerator.createToken(
-                apiKey = apiKey,
-                apiSecret = apiSecret,
+            LiveKitTokenGenerator.createToken(
+                apiKey = key,
+                apiSecret = secret,
                 roomName = roomName,
-                participantIdentity = participantIdentity,
-                participantName = participantName
+                participantIdentity = identity,
+                participantName = displayName
             )
-            _state.value = _state.value.copy(
-                isConnected = true,
-                currentRoom = roomName,
-                activeToken = token
-            )
-            token
         } catch (e: Exception) {
             Log.e("LiveKitVoiceManager", "Failed to generate LiveKit token", e)
             null
         }
-    }
-
-    fun leaveRoom() {
-        _state.value = _state.value.copy(
-            isConnected = false,
-            currentRoom = null,
-            activeToken = null
-        )
     }
 }

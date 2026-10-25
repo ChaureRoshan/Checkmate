@@ -19,6 +19,11 @@ dependencyResolutionManagement {
   repositories {
     google()
     mavenCentral()
+    // LiveKit's audio helper (audioswitch) is hosted on JitPack
+    maven {
+      url = uri("https://jitpack.io")
+      content { includeGroupByRegex("com\\.github.*") }
+    }
   }
 }
 

@@ -47,6 +47,17 @@ jobs:
             -validity 10000 \
             -dname "CN=Android Debug,O=Android,C=US"
 
+      # 4b. Voice chat keys from GitHub repo secrets (Settings > Secrets > Actions)
+      - name: Create .env
+        env:
+          LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
+          LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+        run: |
+          {
+            echo "LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-YOUR_LIVEKIT_API_KEY}"
+            echo "LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-YOUR_LIVEKIT_API_SECRET}"
+          } > .env
+
       # 5. Build APK
       - name: Build debug APK
         run: gradle assembleDebug
