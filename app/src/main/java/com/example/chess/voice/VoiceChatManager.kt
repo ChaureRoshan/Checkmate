@@ -1,208 +1,235 @@
 package com.example.chess.voice
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
-import android.media.AudioFormat
-import android.media.AudioRecord
-import android.media.MediaRecorder
+import android.util.Log
 import androidx.core.content.ContextCompat
+import io.livekit.android.LiveKit
+import io.livekit.android.room.Room
+import io.livekit.android.room.track.RemoteAudioTrack
+import io.livekit.android.room.track.Track
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlin.math.log10
 import kotlin.math.sqrt
-import kotlin.random.Random
 
 data class VoiceChatState(
     val hasPermission: Boolean = false,
     val isMicMuted: Boolean = true,
     val isPushToTalk: Boolean = false,
-    val isRecording: Boolean = false,
+    val isRecording: Boolean = false,        // true while our mic is actually live
     val userAmplitude: Float = 0f,
     val isOpponentSpeaking: Boolean = false,
     val opponentAmplitude: Float = 0f,
     val isDeafened: Boolean = false,
+    val isConnected: Boolean = false,
     val statusText: String = "Voice Ready"
 )
 
-class VoiceChatManager(private val context: Context) {
+/**
+ * Real voice chat over LiveKit. One LiveKit room per chess room code, so both players
+ * (and nobody else) hear each other. Same public API as the old fake implementation,
+ * so VoiceChatBar keeps working unchanged.
+ */
+class VoiceChatManager(
+    private val context: Context,
+    private val liveKit: LiveKitVoiceManager
+) {
+    private val tag = "VoiceChatManager"
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    private val scope = CoroutineScope(Dispatchers.Default)
-    private var recordingJob: Job? = null
-    private var opponentSimulationJob: Job? = null
-    private var audioRecord: AudioRecord? = null
+    private var room: Room? = null
+    private var connectJob: Job? = null
+    private var levelJob: Job? = null
+    private var connectedRoomName: String? = null
 
-    private val _state = MutableStateFlow(
-        VoiceChatState(hasPermission = checkPermission())
-    )
+    private val _state = MutableStateFlow(VoiceChatState(hasPermission = checkPermission()))
     val state: StateFlow<VoiceChatState> = _state.asStateFlow()
 
-    init {
-        updatePermissionStatus()
-    }
-
-    fun checkPermission(): Boolean {
-        return ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.RECORD_AUDIO
-        ) == PackageManager.PERMISSION_GRANTED
-    }
+    fun checkPermission(): Boolean =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
 
     fun updatePermissionStatus() {
         val granted = checkPermission()
-        _state.value = _state.value.copy(
-            hasPermission = granted,
-            statusText = if (granted) "Voice Connected" else "Mic Permission Required"
-        )
-    }
-
-    fun toggleMicMute() {
-        if (!_state.value.hasPermission) return
-        val newMuted = !_state.value.isMicMuted
-        _state.value = _state.value.copy(
-            isMicMuted = newMuted,
-            statusText = if (newMuted) "Microphone Muted" else "Microphone Live"
-        )
-
-        if (!newMuted) {
-            startAudioCapture()
-        } else {
-            stopAudioCapture()
-        }
-    }
-
-    fun startPushToTalk() {
-        if (!_state.value.hasPermission) return
-        _state.value = _state.value.copy(
-            isPushToTalk = true,
-            isMicMuted = false,
-            statusText = "Transmitting Voice..."
-        )
-        startAudioCapture()
-    }
-
-    fun stopPushToTalk() {
-        _state.value = _state.value.copy(
-            isPushToTalk = false,
-            isMicMuted = true,
-            statusText = "Voice Ready"
-        )
-        stopAudioCapture()
-    }
-
-    fun toggleDeafen() {
-        val newDeafen = !_state.value.isDeafened
-        _state.value = _state.value.copy(
-            isDeafened = newDeafen,
-            statusText = if (newDeafen) "Opponent Deafened" else "Opponent Audio Active"
-        )
-    }
-
-    fun simulateOpponentSpeaking(speaking: Boolean, durationMs: Long = 2500) {
-        if (_state.value.isDeafened) return
-        opponentSimulationJob?.cancel()
-        if (speaking) {
-            opponentSimulationJob = scope.launch {
-                val startTime = System.currentTimeMillis()
-                _state.value = _state.value.copy(isOpponentSpeaking = true)
-                while (isActive && System.currentTimeMillis() - startTime < durationMs) {
-                    val fakeAmp = (0.2f + Random.nextFloat() * 0.7f)
-                    _state.value = _state.value.copy(opponentAmplitude = fakeAmp)
-                    delay(80)
+        _state.update {
+            it.copy(
+                hasPermission = granted,
+                statusText = when {
+                    !granted -> "Mic Permission Required"
+                    it.isConnected -> "Voice Connected"
+                    else -> it.statusText
                 }
-                _state.value = _state.value.copy(
-                    isOpponentSpeaking = false,
-                    opponentAmplitude = 0f
-                )
-            }
-        } else {
-            _state.value = _state.value.copy(
-                isOpponentSpeaking = false,
-                opponentAmplitude = 0f
             )
         }
     }
 
-    @SuppressLint("MissingPermission")
-    private fun startAudioCapture() {
-        if (recordingJob?.isActive == true) return
-        if (!checkPermission()) return
+    /** Join the voice room belonging to this chess room. Safe to call repeatedly. */
+    fun connect(roomCode: String, identity: String, displayName: String) {
+        val roomName = "chess_" + roomCode.trim().uppercase()
+        if (connectedRoomName == roomName) return
+        disconnect()
 
-        recordingJob = scope.launch {
-            val sampleRate = 16000
-            val channelConfig = AudioFormat.CHANNEL_IN_MONO
-            val audioFormat = AudioFormat.ENCODING_PCM_16BIT
-            val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
-            val bufferSize = maxOf(minBufferSize, 2048)
+        val token = liveKit.createToken(roomName, identity, displayName)
+        if (token == null) {
+            _state.update { it.copy(statusText = "Voice not configured") }
+            return
+        }
 
+        connectedRoomName = roomName
+        _state.update { it.copy(statusText = "Connecting voice...") }
+
+        connectJob = scope.launch {
             try {
-                audioRecord = AudioRecord(
-                    MediaRecorder.AudioSource.MIC,
-                    sampleRate,
-                    channelConfig,
-                    audioFormat,
-                    bufferSize
-                )
-
-                if (audioRecord?.state == AudioRecord.STATE_INITIALIZED) {
-                    audioRecord?.startRecording()
-                    _state.value = _state.value.copy(isRecording = true)
-
-                    val audioBuffer = ShortArray(bufferSize / 2)
-                    while (isActive && _state.value.isRecording) {
-                        val readCount = audioRecord?.read(audioBuffer, 0, audioBuffer.size) ?: 0
-                        if (readCount > 0) {
-                            var sumSquares = 0.0
-                            for (i in 0 until readCount) {
-                                val s = audioBuffer[i]
-                                sumSquares += (s * s).toDouble()
-                            }
-                            val rms = sqrt(sumSquares / readCount)
-                            // Scale RMS logarithmically between 0.0 and 1.0
-                            val db = if (rms > 1.0) 20 * log10(rms) else 0.0
-                            val normalized = ((db - 20) / 70.0).coerceIn(0.0, 1.0).toFloat()
-
-                            _state.value = _state.value.copy(userAmplitude = normalized)
-                        }
-                        delay(60)
-                    }
+                val newRoom = LiveKit.create(appContext = context.applicationContext)
+                room = newRoom
+                val result = newRoom.connect(liveKit.serverUrl, token)
+                if (result.isFailure) {
+                    Log.e(tag, "LiveKit connect failed", result.exceptionOrNull())
+                    newRoom.release()
+                    room = null
+                    connectedRoomName = null
+                    _state.update { it.copy(isConnected = false, statusText = "Voice connection failed") }
+                    return@launch
                 }
-            } catch (_: Exception) {
-                // Audio recording fallback gracefully in environments without audio input
-            } finally {
-                safeReleaseAudioRecord()
+                _state.update { it.copy(isConnected = true, statusText = "Voice Connected") }
+                startLevelLoop(newRoom)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(tag, "LiveKit connect error", e)
+                connectedRoomName = null
+                _state.update { it.copy(isConnected = false, statusText = "Voice connection failed") }
             }
         }
     }
 
-    private fun stopAudioCapture() {
-        recordingJob?.cancel()
-        recordingJob = null
-        _state.value = _state.value.copy(
-            isRecording = false,
-            userAmplitude = 0f
-        )
-        safeReleaseAudioRecord()
+    fun disconnect() {
+        connectJob?.cancel()
+        connectJob = null
+        levelJob?.cancel()
+        levelJob = null
+        try {
+            room?.disconnect()
+            room?.release()
+        } catch (e: Exception) {
+            Log.w(tag, "disconnect error", e)
+        }
+        room = null
+        connectedRoomName = null
+        _state.update {
+            it.copy(
+                isConnected = false,
+                isMicMuted = true,
+                isPushToTalk = false,
+                isRecording = false,
+                userAmplitude = 0f,
+                isOpponentSpeaking = false,
+                opponentAmplitude = 0f,
+                statusText = "Voice Ready"
+            )
+        }
     }
 
-    private fun safeReleaseAudioRecord() {
-        try {
-            audioRecord?.stop()
-            audioRecord?.release()
-        } catch (_: Exception) {}
-        audioRecord = null
+    fun toggleMicMute() {
+        if (!_state.value.hasPermission) return
+        if (!_state.value.isConnected) {
+            _state.update { it.copy(statusText = "Voice not connected yet") }
+            return
+        }
+        setMic(_state.value.isMicMuted) // muted -> turn on, live -> turn off
+    }
+
+    fun startPushToTalk() {
+        if (!_state.value.hasPermission || !_state.value.isConnected) return
+        _state.update { it.copy(isPushToTalk = true) }
+        setMic(true)
+    }
+
+    fun stopPushToTalk() {
+        _state.update { it.copy(isPushToTalk = false) }
+        setMic(false)
+    }
+
+    fun toggleDeafen() {
+        val newDeafen = !_state.value.isDeafened
+        _state.update {
+            it.copy(
+                isDeafened = newDeafen,
+                isOpponentSpeaking = if (newDeafen) false else it.isOpponentSpeaking,
+                statusText = if (newDeafen) "Opponent Muted" else "Opponent Audio Active"
+            )
+        }
+        applyRemoteVolume()
+    }
+
+    private fun setMic(enabled: Boolean) {
+        val r = room ?: return
+        _state.update {
+            it.copy(
+                isMicMuted = !enabled,
+                isRecording = enabled,
+                statusText = if (enabled) "Microphone Live" else "Microphone Muted"
+            )
+        }
+        scope.launch {
+            try {
+                r.localParticipant.setMicrophoneEnabled(enabled)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(tag, "setMicrophoneEnabled failed", e)
+                _state.update { it.copy(isMicMuted = true, isRecording = false, statusText = "Mic error") }
+            }
+        }
+    }
+
+    private fun applyRemoteVolume() {
+        val r = room ?: return
+        val volume = if (_state.value.isDeafened) 0.0 else 1.0
+        r.remoteParticipants.values.forEach { p ->
+            (p.getTrackPublication(Track.Source.MICROPHONE)?.track as? RemoteAudioTrack)?.setVolume(volume)
+        }
+    }
+
+    private fun startLevelLoop(r: Room) {
+        levelJob?.cancel()
+        levelJob = scope.launch {
+            while (isActive) {
+                val remotes = r.remoteParticipants.values
+                val oppLevel = remotes.maxOfOrNull { it.audioLevel } ?: 0f
+                val oppSpeaking = remotes.any { it.isSpeaking }
+                val micLive = !_state.value.isMicMuted
+                val myLevel = if (micLive) r.localParticipant.audioLevel else 0f
+                val deafened = _state.value.isDeafened
+
+                _state.update {
+                    it.copy(
+                        userAmplitude = sqrt(myLevel.coerceIn(0f, 1f)),
+                        opponentAmplitude = if (deafened) 0f else sqrt(oppLevel.coerceIn(0f, 1f)),
+                        isOpponentSpeaking = oppSpeaking && !deafened
+                    )
+                }
+                // New remote tracks can appear at any time; keep their volume in sync with "deafen".
+                if (deafened) applyRemoteVolume()
+                delay(100)
+            }
+        }
     }
 
     fun release() {
-        stopAudioCapture()
-        opponentSimulationJob?.cancel()
+        disconnect()
+        scope.cancel()
     }
 }

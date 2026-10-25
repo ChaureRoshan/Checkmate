@@ -17,6 +17,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
@@ -54,6 +55,24 @@ data class CloudRoom(
     val voiceHostAmp: Float = 0f,
     val voiceGuestSpeaking: Boolean = false,
     val voiceGuestAmp: Float = 0f
+)
+
+data class OnlinePlayer(
+    val id: String,
+    val name: String,
+    val rating: Int,
+    val avatarIndex: Int,
+    val inGame: Boolean
+)
+
+data class Challenge(
+    val fromId: String,
+    val fromName: String,
+    val fromRating: Int,
+    val roomCode: String,
+    val timeControlMinutes: Int,
+    val status: String,   // PENDING, ACCEPTED, DECLINED
+    val createdAt: Long
 )
 
 object FirebaseRealtimeManager {
@@ -312,6 +331,214 @@ object FirebaseRealtimeManager {
                 }
                 delay(600) // 600ms polling for near instant real-time moves and voice status
             }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Presence (who is online) and direct challenges. No accounts: every
+    // device uses its own guest id. Entries older than PRESENCE_TTL_MS are
+    // treated as offline; the app refreshes its entry every few seconds.
+    // ------------------------------------------------------------------
+
+    private const val PRESENCE_TTL_MS = 35_000L
+    private const val PRESENCE_CLEANUP_MS = 10 * 60_000L
+    private const val CHALLENGE_TTL_MS = 90_000L
+
+    private val serverTimestamp: JSONObject get() = JSONObject().put(".sv", "timestamp")
+
+    /** Server clock from the HTTP Date header, so phones with a wrong clock don't break "online" checks. */
+    private fun serverNow(response: Response): Long =
+        response.headers.getDate("Date")?.time ?: System.currentTimeMillis()
+
+    suspend fun updatePresence(player: PlayerInfo, inGame: Boolean): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val json = JSONObject().apply {
+                put("id", player.id)
+                put("name", player.name)
+                put("rating", player.rating)
+                put("avatarIndex", player.avatarIndex)
+                put("inGame", inGame)
+                put("lastSeen", serverTimestamp)
+            }
+            val request = Request.Builder()
+                .url("$DATABASE_URL/chess_presence/${player.id}.json")
+                .put(json.toString().toRequestBody(jsonMediaType))
+                .build()
+            httpClient.newCall(request).execute().use { it.isSuccessful }
+        } catch (e: Exception) {
+            Log.w(TAG, "presence update failed", e)
+            false
+        }
+    }
+
+    suspend fun removePresence(playerId: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url("$DATABASE_URL/chess_presence/$playerId.json")
+                .delete()
+                .build()
+            httpClient.newCall(request).execute().use { it.isSuccessful }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    suspend fun getOnlinePlayers(selfId: String): List<OnlinePlayer> = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder().url("$DATABASE_URL/chess_presence.json").get().build()
+            httpClient.newCall(request).execute().use { response ->
+                val body = response.body?.string()
+                if (!response.isSuccessful || body.isNullOrEmpty() || body == "null") {
+                    return@withContext emptyList()
+                }
+                val now = serverNow(response)
+                val root = JSONObject(body)
+                val result = mutableListOf<OnlinePlayer>()
+                val staleIds = mutableListOf<String>()
+                val keys = root.keys()
+                while (keys.hasNext()) {
+                    val id = keys.next()
+                    val o = root.optJSONObject(id) ?: continue
+                    val age = now - o.optLong("lastSeen", 0L)
+                    if (age > PRESENCE_CLEANUP_MS) staleIds.add(id)
+                    if (id == selfId || age > PRESENCE_TTL_MS) continue
+                    result.add(
+                        OnlinePlayer(
+                            id = id,
+                            name = o.optString("name", "Player"),
+                            rating = o.optInt("rating", 1200),
+                            avatarIndex = o.optInt("avatarIndex", 0),
+                            inGame = o.optBoolean("inGame", false)
+                        )
+                    )
+                }
+                // Best-effort cleanup of long-dead entries so the list doesn't grow forever
+                staleIds.take(5).forEach { removePresence(it) }
+                result.sortedWith(compareBy<OnlinePlayer> { it.inGame }.thenBy { it.name.lowercase() })
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "online players fetch failed", e)
+            emptyList()
+        }
+    }
+
+    suspend fun sendChallenge(
+        toId: String,
+        from: PlayerInfo,
+        roomCode: String,
+        timeControlMinutes: Int
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val json = JSONObject().apply {
+                put("fromId", from.id)
+                put("fromName", from.name)
+                put("fromRating", from.rating)
+                put("roomCode", roomCode)
+                put("timeControlMinutes", timeControlMinutes)
+                put("status", "PENDING")
+                put("createdAt", serverTimestamp)
+            }
+            val request = Request.Builder()
+                .url("$DATABASE_URL/chess_challenges/$toId/${from.id}.json")
+                .put(json.toString().toRequestBody(jsonMediaType))
+                .build()
+            httpClient.newCall(request).execute().use { it.isSuccessful }
+        } catch (e: Exception) {
+            Log.e(TAG, "sendChallenge failed", e)
+            false
+        }
+    }
+
+    /** Fresh PENDING challenges addressed to [myId], newest first. */
+    suspend fun getIncomingChallenges(myId: String): List<Challenge> = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder().url("$DATABASE_URL/chess_challenges/$myId.json").get().build()
+            httpClient.newCall(request).execute().use { response ->
+                val body = response.body?.string()
+                if (!response.isSuccessful || body.isNullOrEmpty() || body == "null") {
+                    return@withContext emptyList()
+                }
+                val now = serverNow(response)
+                val root = JSONObject(body)
+                val list = mutableListOf<Challenge>()
+                val keys = root.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    val o = root.optJSONObject(key) ?: continue
+                    val created = o.optLong("createdAt", 0L)
+                    if (o.optString("status") != "PENDING") continue
+                    if (now - created > CHALLENGE_TTL_MS) continue
+                    list.add(
+                        Challenge(
+                            fromId = o.optString("fromId", key),
+                            fromName = o.optString("fromName", "Player"),
+                            fromRating = o.optInt("fromRating", 1200),
+                            roomCode = o.optString("roomCode"),
+                            timeControlMinutes = o.optInt("timeControlMinutes", 10),
+                            status = "PENDING",
+                            createdAt = created
+                        )
+                    )
+                }
+                list.filter { it.roomCode.isNotEmpty() }.sortedByDescending { it.createdAt }
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /** Status of a challenge we sent, or null if it was deleted / doesn't exist. */
+    suspend fun getChallengeStatus(toId: String, fromId: String): String? = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url("$DATABASE_URL/chess_challenges/$toId/$fromId.json")
+                .get()
+                .build()
+            httpClient.newCall(request).execute().use { response ->
+                val body = response.body?.string()
+                if (!response.isSuccessful || body.isNullOrEmpty() || body == "null") return@withContext null
+                JSONObject(body).optString("status", "").ifEmpty { null }
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    suspend fun setChallengeStatus(toId: String, fromId: String, status: String): Boolean =
+        withContext(Dispatchers.IO) {
+            try {
+                val json = JSONObject().put("status", status)
+                val request = Request.Builder()
+                    .url("$DATABASE_URL/chess_challenges/$toId/$fromId.json")
+                    .patch(json.toString().toRequestBody(jsonMediaType))
+                    .build()
+                httpClient.newCall(request).execute().use { it.isSuccessful }
+            } catch (e: Exception) {
+                false
+            }
+        }
+
+    suspend fun deleteChallenge(toId: String, fromId: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url("$DATABASE_URL/chess_challenges/$toId/$fromId.json")
+                .delete()
+                .build()
+            httpClient.newCall(request).execute().use { it.isSuccessful }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    suspend fun deleteRoom(code: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url("$DATABASE_URL/chess_rooms/$code.json")
+                .delete()
+                .build()
+            httpClient.newCall(request).execute().use { it.isSuccessful }
+        } catch (e: Exception) {
+            false
         }
     }
 

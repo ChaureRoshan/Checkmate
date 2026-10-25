@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.sp
 import com.example.chess.data.GameRecordEntity
 import com.example.chess.model.BoardTheme
 import com.example.chess.model.BotDifficulty
+import com.example.chess.multiplayer.OnlinePlayer
 import com.example.chess.viewmodel.GameViewModel
 import com.example.ui.theme.ChampagneGold
 import com.example.ui.theme.ChampagneGoldDark
@@ -93,6 +94,8 @@ fun LobbyScreen(
     val currentTheme by viewModel.boardTheme.collectAsState()
     val selectedPreset by viewModel.selectedPreset.collectAsState()
     val liveKitState by viewModel.liveKitManager.state.collectAsState()
+    val onlinePlayers by viewModel.onlinePlayers.collectAsState()
+    val incomingChallenge by viewModel.incomingChallenge.collectAsState()
 
     var showEditNameDialog by remember { mutableStateOf(false) }
     var showJoinRoomDialog by remember { mutableStateOf(false) }
@@ -514,6 +517,50 @@ fun LobbyScreen(
             }
         }
 
+        // Online Players (no account: everyone is a guest) - tap Challenge to send a direct request
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(if (onlinePlayers.isNotEmpty()) EmeraldAccent else ChampagneGold.copy(alpha = 0.5f))
+                    )
+                    Text(
+                        text = "ONLINE PLAYERS (${onlinePlayers.size})",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp,
+                        color = ChampagneGold
+                    )
+                }
+
+                if (onlinePlayers.isEmpty()) {
+                    Text(
+                        text = "Abhi koi aur online nahi hai. Dost ko app khulwao, wo yahan dikhega.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("no_online_players")
+                    )
+                } else {
+                    onlinePlayers.forEach { player ->
+                        OnlinePlayerRow(
+                            player = player,
+                            onChallenge = {
+                                viewModel.challengePlayer(player)
+                                onNavigateToGame()
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
         // Secondary Modes Grid / Cards
         item {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -875,6 +922,40 @@ fun LobbyScreen(
         )
     }
 
+    // Incoming direct request from another online player
+    incomingChallenge?.let { challenge ->
+        AlertDialog(
+            onDismissRequest = { viewModel.declineChallenge(challenge) },
+            containerColor = ObsidianSurface,
+            title = {
+                Text("Game request", color = Color.White, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Text(
+                    text = "${challenge.fromName} (${challenge.fromRating}) tumse khelna chahta hai - ${challenge.timeControlMinutes} min game.",
+                    color = Color.White
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.acceptChallenge(challenge)
+                        onNavigateToGame()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ChampagneGold, contentColor = Color.Black),
+                    modifier = Modifier.testTag("accept_challenge_button")
+                ) {
+                    Text("Accept", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.declineChallenge(challenge) }) {
+                    Text("Decline", color = Color.White)
+                }
+            }
+        )
+    }
+
     // LiveKit Cloud Voice Settings Dialog
     if (showLiveKitDialog) {
         AlertDialog(
@@ -992,6 +1073,64 @@ fun LobbyScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+fun OnlinePlayerRow(
+    player: OnlinePlayer,
+    onChallenge: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .border(1.dp, ObsidianBorder, RoundedCornerShape(14.dp)),
+        color = ObsidianSurface
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(ElectricCyan.copy(alpha = 0.18f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Person,
+                    contentDescription = null,
+                    tint = ElectricCyan,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = player.name,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Text(
+                    text = if (player.inGame) "Rating ${player.rating} - game me hai" else "Rating ${player.rating} - online",
+                    fontSize = 11.sp,
+                    color = if (player.inGame) ChampagneGold else EmeraldAccent
+                )
+            }
+            Button(
+                onClick = onChallenge,
+                enabled = !player.inGame,
+                colors = ButtonDefaults.buttonColors(containerColor = ChampagneGold, contentColor = Color.Black),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                modifier = Modifier.testTag("challenge_${player.id}")
+            ) {
+                Text("Challenge", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+        }
     }
 }
 

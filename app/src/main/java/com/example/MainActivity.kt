@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -14,12 +15,15 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
 import com.example.chess.ui.screens.GameScreen
 import com.example.chess.ui.screens.LobbyScreen
 import com.example.chess.viewmodel.GameViewModel
@@ -32,13 +36,38 @@ enum class Screen {
 }
 
 class MainActivity : ComponentActivity() {
+
+    // Same activity-scoped instance the UI uses, so we can pause "online" status in the background
+    private val gameViewModel: GameViewModel by viewModels()
+
+    override fun onStart() {
+        super.onStart()
+        gameViewModel.setAppVisible(true)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        gameViewModel.setAppVisible(false)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             MyApplicationTheme {
-                val gameViewModel: GameViewModel = viewModel()
                 var currentScreen by remember { mutableStateOf(Screen.LOBBY) }
+                val context = LocalContext.current
+                val notice by gameViewModel.notice.collectAsState()
+
+                LaunchedEffect(Unit) {
+                    gameViewModel.exitToLobby.collect { currentScreen = Screen.LOBBY }
+                }
+                LaunchedEffect(notice) {
+                    notice?.let {
+                        Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+                        gameViewModel.clearNotice()
+                    }
+                }
 
                 Scaffold(
                     modifier = Modifier
@@ -67,6 +96,7 @@ class MainActivity : ComponentActivity() {
                                     GameScreen(
                                         viewModel = gameViewModel,
                                         onNavigateBack = {
+                                            gameViewModel.leaveOnlineRoom()
                                             currentScreen = Screen.LOBBY
                                         }
                                     )

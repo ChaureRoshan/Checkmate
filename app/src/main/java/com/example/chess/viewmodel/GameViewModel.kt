@@ -19,17 +19,22 @@ import com.example.chess.model.PieceColor
 import com.example.chess.model.PieceType
 import com.example.chess.model.PlayerInfo
 import com.example.chess.model.Position
+import com.example.chess.multiplayer.Challenge
 import com.example.chess.multiplayer.CloudRoom
 import com.example.chess.multiplayer.FirebaseRealtimeManager
 import com.example.chess.multiplayer.MultiplayerEvent
 import com.example.chess.multiplayer.MultiplayerHub
 import com.example.chess.multiplayer.MultiplayerRoom
 import com.example.chess.multiplayer.MultiplayerSession
+import com.example.chess.multiplayer.OnlinePlayer
 import com.example.chess.voice.LiveKitVoiceManager
 import com.example.chess.voice.VoiceChatManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
@@ -41,8 +46,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = ChessDatabase.getDatabase(application)
     val soundEffects = SoundEffects(application)
-    val voiceChatManager = VoiceChatManager(application)
     val liveKitManager = LiveKitVoiceManager(application)
+    val voiceChatManager = VoiceChatManager(application, liveKitManager)
 
     private val _board = MutableStateFlow(ChessBoard.initial())
     val board: StateFlow<ChessBoard> = _board.asStateFlow()
@@ -113,11 +118,29 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val _recentGames = MutableStateFlow<List<GameRecordEntity>>(emptyList())
     val recentGames: StateFlow<List<GameRecordEntity>> = _recentGames.asStateFlow()
 
+    // ---- Online presence / direct challenges (no account needed) ----
+    private val _onlinePlayers = MutableStateFlow<List<OnlinePlayer>>(emptyList())
+    val onlinePlayers: StateFlow<List<OnlinePlayer>> = _onlinePlayers.asStateFlow()
+
+    private val _incomingChallenge = MutableStateFlow<Challenge?>(null)
+    val incomingChallenge: StateFlow<Challenge?> = _incomingChallenge.asStateFlow()
+
+    private val _notice = MutableStateFlow<String?>(null)
+    val notice: StateFlow<String?> = _notice.asStateFlow()
+
+    private val _exitToLobby = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val exitToLobby: SharedFlow<Unit> = _exitToLobby.asSharedFlow()
+
+    private var presenceJob: Job? = null
+    private var outgoingChallengeJob: Job? = null
+    private var lastPresenceId: String? = null
+    private val handledChallenges = mutableSetOf<String>()
+    private var clockSyncedFromCloud = false
+
     private var multiplayerSession: MultiplayerSession? = null
     private var clockJob: Job? = null
     private var botJob: Job? = null
     private var cloudSyncJob: Job? = null
-    private var voiceSyncJob: Job? = null
     private var matchStartTime = System.currentTimeMillis()
 
     init {
@@ -209,7 +232,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         resetGame(timeMinutes = _selectedPreset.value.minutes)
     }
 
-    fun createOnlineRoom(timeMinutes: Int = _selectedPreset.value.minutes) {
+    fun createOnlineRoom(
+        timeMinutes: Int = _selectedPreset.value.minutes,
+        challengeTargetId: String? = null
+    ) {
         _gameMode.value = GameMode.ONLINE_MULTIPLAYER
         val code = "KNG-${Random.nextInt(100, 999)}"
         _roomCode.value = code
@@ -240,16 +266,27 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
         // Publish to Firebase Realtime Database
         viewModelScope.launch {
-            FirebaseRealtimeManager.createRoom(
+            val created = FirebaseRealtimeManager.createRoom(
                 code = code,
                 host = hostPlayer,
                 timeControlMinutes = timeMinutes,
                 incrementSeconds = _selectedPreset.value.incrementSeconds,
                 hostColor = PieceColor.WHITE
             )
+            // Direct request: only send it once the room really exists
+            if (challengeTargetId != null) {
+                if (created && FirebaseRealtimeManager.sendChallenge(challengeTargetId, hostPlayer, code, timeMinutes)) {
+                    watchOutgoingChallenge(challengeTargetId, hostPlayer.id, code)
+                } else {
+                    _notice.value = "Request bhej nahi paya. Internet check karo."
+                    leaveOnlineRoom()
+                    _exitToLobby.tryEmit(Unit)
+                }
+            }
         }
+        clockSyncedFromCloud = true // host decides the time control
         startCloudRoomListener(code, isHost = true)
-        startVoiceStateSync(code, isHost = true)
+        connectVoice(code)
 
         resetGame(timeMinutes = timeMinutes)
     }
@@ -300,8 +337,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         }
+        clockSyncedFromCloud = false
         startCloudRoomListener(cleanCode, isHost = false)
-        startVoiceStateSync(cleanCode, isHost = false)
+        connectVoice(cleanCode)
 
         resetGame(timeMinutes = room?.timeControlMinutes ?: _selectedPreset.value.minutes)
     }
@@ -337,15 +375,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 session.attachRoom(room)
                 multiplayerSession = session
                 observeMultiplayerEvents(session)
-                // Fallback automated opponent if no user joins within 3.5s
-                session.simulateQuickMatchGuestArrival { opp ->
-                    _opponent.value = opp
-                    _isWaitingForOpponent.value = false
-                }
+                // Wait for a real player to join (the old fake "simulated opponent" was removed)
             }
 
+            clockSyncedFromCloud = isHost
             startCloudRoomListener(code, isHost = isHost)
-            startVoiceStateSync(code, isHost = isHost)
+            connectVoice(code)
             resetGame(timeMinutes = _selectedPreset.value.minutes)
         }
     }
@@ -401,22 +436,150 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 onGameEnded("WIN")
             }
 
-            // Sync live opponent voice state
-            val oppSpeaking = if (isHost) cloudRoom.voiceGuestSpeaking else cloudRoom.voiceHostSpeaking
-            if (oppSpeaking) {
-                voiceChatManager.simulateOpponentSpeaking(true, durationMs = 800)
+            // Guest uses the host's time control (before any move is played)
+            if (!isHost && !clockSyncedFromCloud && cloudRoom.moveCount == 0) {
+                clockSyncedFromCloud = true
+                resetGame(timeMinutes = cloudRoom.timeControlMinutes)
             }
         }
     }
 
-    private fun startVoiceStateSync(code: String, isHost: Boolean) {
-        voiceSyncJob?.cancel()
-        voiceSyncJob = viewModelScope.launch {
-            voiceChatManager.state.collect { vState ->
-                val isSpeaking = vState.isRecording || vState.isPushToTalk
-                val amp = if (isSpeaking) vState.userAmplitude else 0f
-                FirebaseRealtimeManager.updateVoiceState(code, isHost, isSpeaking, amp)
+    // ------------------------------------------------------------------
+    // Voice
+    // ------------------------------------------------------------------
+    private fun connectVoice(code: String) {
+        val me = _userProfile.value
+        voiceChatManager.connect(code, me.guestId, me.displayName)
+    }
+
+    // ------------------------------------------------------------------
+    // Presence + challenges
+    // ------------------------------------------------------------------
+
+    /** Call with true from onStart and false from onStop so we only show "online" while the app is open. */
+    fun setAppVisible(visible: Boolean) {
+        presenceJob?.cancel()
+        presenceJob = null
+        if (!visible) {
+            val id = lastPresenceId
+            lastPresenceId = null
+            _onlinePlayers.value = emptyList()
+            _incomingChallenge.value = null
+            if (id != null) viewModelScope.launch { FirebaseRealtimeManager.removePresence(id) }
+            return
+        }
+        presenceJob = viewModelScope.launch {
+            var tick = 0
+            while (isActive) {
+                try {
+                    val me = _userProfile.value
+                    val previousId = lastPresenceId
+                    if (previousId != null && previousId != me.guestId) {
+                        FirebaseRealtimeManager.removePresence(previousId)
+                    }
+                    lastPresenceId = me.guestId
+                    val inGame = _roomCode.value != null
+
+                    if (tick % 2 == 0) {
+                        FirebaseRealtimeManager.updatePresence(
+                            PlayerInfo(
+                                id = me.guestId,
+                                name = me.displayName,
+                                rating = me.rating,
+                                avatarIndex = me.avatarIndex
+                            ),
+                            inGame = inGame
+                        )
+                    }
+                    _onlinePlayers.value = FirebaseRealtimeManager.getOnlinePlayers(me.guestId)
+
+                    if (inGame) {
+                        _incomingChallenge.value = null
+                    } else {
+                        _incomingChallenge.value = FirebaseRealtimeManager
+                            .getIncomingChallenges(me.guestId)
+                            .firstOrNull { !handledChallenges.contains(challengeKey(it)) }
+                    }
+                } catch (_: Exception) {
+                    // transient network problem; try again on the next tick
+                }
+                tick++
+                delay(4000)
             }
+        }
+    }
+
+    private fun challengeKey(c: Challenge) = "${c.fromId}:${c.createdAt}"
+
+    /** Send a direct play request to an online player and wait in a fresh room. */
+    fun challengePlayer(target: OnlinePlayer) {
+        if (target.inGame) return
+        createOnlineRoom(
+            timeMinutes = _selectedPreset.value.minutes,
+            challengeTargetId = target.id
+        )
+    }
+
+    private fun watchOutgoingChallenge(targetId: String, myId: String, code: String) {
+        outgoingChallengeJob?.cancel()
+        outgoingChallengeJob = viewModelScope.launch {
+            val startedAt = System.currentTimeMillis()
+            while (isActive && _roomCode.value == code && _isWaitingForOpponent.value) {
+                val status = FirebaseRealtimeManager.getChallengeStatus(targetId, myId)
+                val timedOut = System.currentTimeMillis() - startedAt > 60_000L
+                if (status == "DECLINED" || timedOut || status == null) {
+                    _notice.value = if (status == "DECLINED") "Request decline kar di gayi."
+                    else "Koi jawab nahi aaya."
+                    FirebaseRealtimeManager.deleteChallenge(targetId, myId)
+                    leaveOnlineRoom()
+                    _exitToLobby.tryEmit(Unit)
+                    return@launch
+                }
+                if (status == "ACCEPTED") break // the guest joins the room; the room listener takes over
+                delay(2000)
+            }
+            FirebaseRealtimeManager.deleteChallenge(targetId, myId)
+        }
+    }
+
+    fun acceptChallenge(challenge: Challenge) {
+        handledChallenges.add(challengeKey(challenge))
+        _incomingChallenge.value = null
+        val me = _userProfile.value.guestId
+        viewModelScope.launch {
+            FirebaseRealtimeManager.setChallengeStatus(me, challenge.fromId, "ACCEPTED")
+        }
+        joinOnlineRoom(challenge.roomCode)
+    }
+
+    fun declineChallenge(challenge: Challenge) {
+        handledChallenges.add(challengeKey(challenge))
+        _incomingChallenge.value = null
+        val me = _userProfile.value.guestId
+        viewModelScope.launch {
+            FirebaseRealtimeManager.setChallengeStatus(me, challenge.fromId, "DECLINED")
+        }
+    }
+
+    fun clearNotice() {
+        _notice.value = null
+    }
+
+    /** Stops all online syncing + voice when the player goes back to the lobby. Safe to call anytime. */
+    fun leaveOnlineRoom() {
+        val code = _roomCode.value ?: return
+        val wasWaitingHost = _isWaitingForOpponent.value
+        cloudSyncJob?.cancel()
+        cloudSyncJob = null
+        outgoingChallengeJob?.cancel()
+        outgoingChallengeJob = null
+        voiceChatManager.disconnect()
+        multiplayerSession?.close()
+        multiplayerSession = null
+        _roomCode.value = null
+        _isWaitingForOpponent.value = false
+        if (wasWaitingHost) {
+            viewModelScope.launch { FirebaseRealtimeManager.deleteRoom(code) }
         }
     }
 
@@ -818,7 +981,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         clockJob?.cancel()
         botJob?.cancel()
         cloudSyncJob?.cancel()
-        voiceSyncJob?.cancel()
+        presenceJob?.cancel()
+        outgoingChallengeJob?.cancel()
+        lastPresenceId?.let { id ->
+            // viewModelScope is already cancelled here, so do a best-effort fire-and-forget delete
+            Thread { kotlinx.coroutines.runBlocking { FirebaseRealtimeManager.removePresence(id) } }.start()
+        }
         multiplayerSession?.close()
         voiceChatManager.release()
     }
