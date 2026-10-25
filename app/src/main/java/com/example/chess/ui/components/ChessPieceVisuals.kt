@@ -5,272 +5,109 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.vector.PathParser
 import com.example.chess.model.ChessPiece
 import com.example.chess.model.PieceColor
 import com.example.chess.model.PieceType
 
-// Color constants for pieces
-private val PieceWhiteFill = Color(0xFFF8FAFC)
-private val PieceWhiteStroke = Color(0xFF94A3B8)
-private val PieceWhiteInnerAccent = Color(0xFFE2E8F0)
+/**
+ * Flat, outlined pieces (same look as chess.com / lichess "cartoon" sets).
+ * Every shape is drawn in a 100 x 100 box and scaled to the square.
+ */
+private enum class Role { BODY, LINE, DOT }
 
-private val PieceBlackFill = Color(0xFF1E2430)
-private val PieceBlackStroke = Color(0xFF64748B)
-private val PieceBlackInnerAccent = Color(0xFF334155)
+private class Shape(val path: Path, val role: Role)
+
+private fun shape(d: String, role: Role) = Shape(PathParser().parsePathString(d).toPath(), role)
+
+private val PieceShapes: Map<PieceType, List<Shape>> by lazy {
+    mapOf(
+        PieceType.PAWN to listOf(
+            shape("M 25 80 L 75 80 Q 80 80 80 85 L 80 87 Q 80 92 75 92 L 25 92 Q 20 92 20 87 L 20 85 Q 20 80 25 80 Z", Role.BODY),
+            shape("M 30 80 C 32 70 38 62 42 54 L 58 54 C 62 62 68 70 70 80 Z", Role.BODY),
+            shape("M 39 46 L 61 46 Q 66 46 66 51 L 66 51 Q 66 56 61 56 L 39 56 Q 34 56 34 51 L 34 51 Q 34 46 39 46 Z", Role.BODY),
+            shape("M 50 18 C 57.18 18 63 23.82 63 31 C 63 38.18 57.18 44 50 44 C 42.82 44 37 38.18 37 31 C 37 23.82 42.82 18 50 18 Z", Role.BODY),
+        ),
+        PieceType.ROOK to listOf(
+            shape("M 25 80 L 75 80 Q 80 80 80 85 L 80 87 Q 80 92 75 92 L 25 92 Q 20 92 20 87 L 20 85 Q 20 80 25 80 Z", Role.BODY),
+            shape("M 28 80 L 33 40 L 67 40 L 72 80 Z", Role.BODY),
+            shape("M 26 40 L 26 16 L 38 16 L 38 24 L 44 24 L 44 16 L 56 16 L 56 24 L 62 24 L 62 16 L 74 16 L 74 40 Z", Role.BODY),
+            shape("M 33 40 L 67 40", Role.LINE),
+        ),
+        PieceType.BISHOP to listOf(
+            shape("M 25 80 L 75 80 Q 80 80 80 85 L 80 87 Q 80 92 75 92 L 25 92 Q 20 92 20 87 L 20 85 Q 20 80 25 80 Z", Role.BODY),
+            shape("M 32 80 C 34 70 40 64 42 56 L 58 56 C 60 64 66 70 68 80 Z", Role.BODY),
+            shape("M 38 50 L 62 50 Q 66 50 66 54 L 66 55 Q 66 59 62 59 L 38 59 Q 34 59 34 55 L 34 54 Q 34 50 38 50 Z", Role.BODY),
+            shape("M 50 18 C 62 26 70 36 68 46 C 67 50 64 50 60 50 L 40 50 C 36 50 33 50 32 46 C 30 36 38 26 50 18 Z", Role.BODY),
+            shape("M 50 8.5 C 53.04 8.5 55.5 10.96 55.5 14 C 55.5 17.04 53.04 19.5 50 19.5 C 46.96 19.5 44.5 17.04 44.5 14 C 44.5 10.96 46.96 8.5 50 8.5 Z", Role.BODY),
+            shape("M 52 26 L 58 36", Role.LINE),
+        ),
+        PieceType.KNIGHT to listOf(
+            shape("M 25 80 L 75 80 Q 80 80 80 85 L 80 87 Q 80 92 75 92 L 25 92 Q 20 92 20 87 L 20 85 Q 20 80 25 80 Z", Role.BODY),
+            shape("M 28 80 C 28 62 34 52 42 44 C 38 45 34 48 30 50 C 25 53 20 52 19 48 C 18 44 24 36 30 30 C 34 26 36 22 38 15 C 42 18 44 18 48 15 L 52 11 C 54 17 58 19 62 23 C 72 31 78 50 74 80 Z", Role.BODY),
+            shape("M 32 80 L 74 80", Role.LINE),
+            shape("M 40 28.4 C 41.44 28.4 42.6 29.56 42.6 31 C 42.6 32.44 41.44 33.6 40 33.6 C 38.56 33.6 37.4 32.44 37.4 31 C 37.4 29.56 38.56 28.4 40 28.4 Z", Role.DOT),
+            shape("M 21 47 C 22 49 24 49 25 47", Role.LINE),
+            shape("M 54 24 C 62 30 66 40 66 52", Role.LINE),
+        ),
+        PieceType.QUEEN to listOf(
+            shape("M 25 80 L 75 80 Q 80 80 80 85 L 80 87 Q 80 92 75 92 L 25 92 Q 20 92 20 87 L 20 85 Q 20 80 25 80 Z", Role.BODY),
+            shape("M 28 80 L 32 46 L 68 46 L 72 80 Z", Role.BODY),
+            shape("M 22 24 L 34 44 L 40 22 L 50 42 L 60 22 L 66 44 L 78 24 L 74 52 L 26 52 Z", Role.BODY),
+            shape("M 34 50 L 66 50 Q 70 50 70 54 L 70 55 Q 70 59 66 59 L 34 59 Q 30 59 30 55 L 30 54 Q 30 50 34 50 Z", Role.BODY),
+            shape("M 22 17 C 24.76 17 27 19.24 27 22 C 27 24.76 24.76 27 22 27 C 19.24 27 17 24.76 17 22 C 17 19.24 19.24 17 22 17 Z", Role.BODY),
+            shape("M 40 12 C 42.76 12 45 14.24 45 17 C 45 19.76 42.76 22 40 22 C 37.24 22 35 19.76 35 17 C 35 14.24 37.24 12 40 12 Z", Role.BODY),
+            shape("M 60 12 C 62.76 12 65 14.24 65 17 C 65 19.76 62.76 22 60 22 C 57.24 22 55 19.76 55 17 C 55 14.24 57.24 12 60 12 Z", Role.BODY),
+            shape("M 78 17 C 80.76 17 83 19.24 83 22 C 83 24.76 80.76 27 78 27 C 75.24 27 73 24.76 73 22 C 73 19.24 75.24 17 78 17 Z", Role.BODY),
+            shape("M 50 8 C 52.76 8 55 10.24 55 13 C 55 15.76 52.76 18 50 18 C 47.24 18 45 15.76 45 13 C 45 10.24 47.24 8 50 8 Z", Role.BODY),
+        ),
+        PieceType.KING to listOf(
+            shape("M 25 80 L 75 80 Q 80 80 80 85 L 80 87 Q 80 92 75 92 L 25 92 Q 20 92 20 87 L 20 85 Q 20 80 25 80 Z", Role.BODY),
+            shape("M 28 80 L 32 52 L 68 52 L 72 80 Z", Role.BODY),
+            shape("M 24 56 C 18 42 24 32 36 30 C 42 29 46 32 50 36 C 54 32 58 29 64 30 C 76 32 82 42 76 56 Z", Role.BODY),
+            shape("M 34 54 L 66 54 Q 70 54 70 58 L 70 59 Q 70 63 66 63 L 34 63 Q 30 63 30 59 L 30 58 Q 30 54 34 54 Z", Role.BODY),
+            shape("M 46 8 L 54 8 L 54 14 L 60 14 L 60 21 L 54 21 L 54 36 L 46 36 L 46 21 L 40 21 L 40 14 L 46 14 Z", Role.BODY),
+        ),
+    )
+}
+
+private val WhiteFill = Color(0xFFF5F5F5)
+private val WhiteLine = Color(0xFF4A4A4A)
+private val BlackFill = Color(0xFF4C4C4C)
+private val BlackLine = Color(0xFF262626)
 
 @Composable
 fun ChessPieceVisual(
     piece: ChessPiece,
     modifier: Modifier = Modifier
 ) {
+    val isWhite = piece.color == PieceColor.WHITE
+    val fill = if (isWhite) WhiteFill else BlackFill
+    val line = if (isWhite) WhiteLine else BlackLine
+    val shapes = PieceShapes[piece.type] ?: return
+
     Canvas(modifier = modifier.fillMaxSize()) {
-        val w = size.width
-        val h = size.height
-        val isWhite = piece.color == PieceColor.WHITE
-        val fillColor = if (isWhite) PieceWhiteFill else PieceBlackFill
-        val strokeColor = if (isWhite) PieceWhiteStroke else PieceBlackStroke
-        val accentColor = if (isWhite) PieceWhiteInnerAccent else PieceBlackInnerAccent
-
-        val strokeWidth = w * 0.04f
-
-        when (piece.type) {
-            PieceType.PAWN -> drawPawn(w, h, fillColor, strokeColor, strokeWidth)
-            PieceType.KNIGHT -> drawKnight(w, h, fillColor, strokeColor, strokeWidth, isWhite)
-            PieceType.BISHOP -> drawBishop(w, h, fillColor, strokeColor, strokeWidth, accentColor)
-            PieceType.ROOK -> drawRook(w, h, fillColor, strokeColor, strokeWidth)
-            PieceType.QUEEN -> drawQueen(w, h, fillColor, strokeColor, strokeWidth)
-            PieceType.KING -> drawKing(w, h, fillColor, strokeColor, strokeWidth)
+        val s = minOf(size.width, size.height) / 100f
+        withTransform({ scale(s, s, pivot = Offset.Zero) }) {
+            for (sh in shapes) {
+                when (sh.role) {
+                    Role.BODY -> {
+                        drawPath(sh.path, fill)
+                        drawPath(sh.path, line, style = Stroke(width = 1.7f, join = StrokeJoin.Round))
+                    }
+                    Role.LINE -> drawPath(
+                        sh.path, line,
+                        style = Stroke(width = 1.7f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                    )
+                    Role.DOT -> drawPath(sh.path, line)
+                }
+            }
         }
     }
-}
-
-private fun DrawScope.drawPawn(w: Float, h: Float, fill: Color, stroke: Color, strokeWidth: Float) {
-    // Head circle
-    drawCircle(color = fill, radius = w * 0.16f, center = Offset(w * 0.5f, h * 0.32f))
-    drawCircle(color = stroke, radius = w * 0.16f, center = Offset(w * 0.5f, h * 0.32f), style = Stroke(strokeWidth))
-
-    // Body & Base
-    val path = Path().apply {
-        moveTo(w * 0.38f, h * 0.44f)
-        cubicTo(w * 0.40f, h * 0.60f, w * 0.32f, h * 0.72f, w * 0.24f, h * 0.82f)
-        lineTo(w * 0.76f, h * 0.82f)
-        cubicTo(w * 0.68f, h * 0.72f, w * 0.60f, h * 0.60f, w * 0.62f, h * 0.44f)
-        close()
-    }
-    drawPath(path, fill)
-    drawPath(path, stroke, style = Stroke(strokeWidth, join = StrokeJoin.Round))
-
-    // Base pedestal
-    val base = Path().apply {
-        moveTo(w * 0.20f, h * 0.82f)
-        lineTo(w * 0.80f, h * 0.82f)
-        lineTo(w * 0.82f, h * 0.88f)
-        lineTo(w * 0.18f, h * 0.88f)
-        close()
-    }
-    drawPath(base, fill)
-    drawPath(base, stroke, style = Stroke(strokeWidth, join = StrokeJoin.Round))
-}
-
-private fun DrawScope.drawKnight(w: Float, h: Float, fill: Color, stroke: Color, strokeWidth: Float, isWhite: Boolean) {
-    val path = Path().apply {
-        moveTo(w * 0.68f, h * 0.82f)
-        lineTo(w * 0.28f, h * 0.82f)
-        cubicTo(w * 0.30f, h * 0.76f, w * 0.32f, h * 0.70f, w * 0.35f, h * 0.65f)
-        lineTo(w * 0.26f, h * 0.60f)
-        cubicTo(w * 0.22f, h * 0.54f, w * 0.22f, h * 0.46f, w * 0.26f, h * 0.42f)
-        lineTo(w * 0.32f, h * 0.38f)
-        cubicTo(w * 0.30f, h * 0.33f, w * 0.32f, h * 0.28f, w * 0.37f, h * 0.25f)
-        cubicTo(w * 0.42f, h * 0.22f, w * 0.46f, h * 0.24f, w * 0.50f, h * 0.18f)
-        cubicTo(w * 0.54f, h * 0.22f, w * 0.58f, h * 0.23f, w * 0.62f, h * 0.28f)
-        cubicTo(w * 0.68f, h * 0.35f, w * 0.74f, h * 0.46f, w * 0.74f, h * 0.60f)
-        cubicTo(w * 0.74f, h * 0.70f, w * 0.70f, h * 0.78f, w * 0.68f, h * 0.82f)
-        close()
-    }
-    drawPath(path, fill)
-    drawPath(path, stroke, style = Stroke(strokeWidth, join = StrokeJoin.Round, cap = StrokeCap.Round))
-
-    // Eye
-    val eyeColor = if (isWhite) stroke else fill
-    drawCircle(color = eyeColor, radius = w * 0.035f, center = Offset(w * 0.42f, h * 0.36f))
-
-    // Mane notch
-    val mane = Path().apply {
-        moveTo(w * 0.58f, h * 0.34f)
-        lineTo(w * 0.52f, h * 0.40f)
-    }
-    drawPath(mane, stroke, style = Stroke(strokeWidth * 0.9f, cap = StrokeCap.Round))
-
-    // Pedestal
-    val base = Path().apply {
-        moveTo(w * 0.22f, h * 0.82f)
-        lineTo(w * 0.78f, h * 0.82f)
-        lineTo(w * 0.80f, h * 0.88f)
-        lineTo(w * 0.20f, h * 0.88f)
-        close()
-    }
-    drawPath(base, fill)
-    drawPath(base, stroke, style = Stroke(strokeWidth, join = StrokeJoin.Round))
-}
-
-private fun DrawScope.drawBishop(w: Float, h: Float, fill: Color, stroke: Color, strokeWidth: Float, accent: Color) {
-    // Top cross sphere
-    drawCircle(color = fill, radius = w * 0.05f, center = Offset(w * 0.5f, h * 0.16f))
-    drawCircle(color = stroke, radius = w * 0.05f, center = Offset(w * 0.5f, h * 0.16f), style = Stroke(strokeWidth))
-
-    // Bishop Mitre Head
-    val mitre = Path().apply {
-        moveTo(w * 0.5f, h * 0.22f)
-        cubicTo(w * 0.66f, h * 0.28f, w * 0.68f, h * 0.46f, w * 0.58f, h * 0.56f)
-        lineTo(w * 0.68f, h * 0.80f)
-        lineTo(w * 0.32f, h * 0.80f)
-        lineTo(w * 0.42f, h * 0.56f)
-        cubicTo(w * 0.32f, h * 0.46f, w * 0.34f, h * 0.28f, w * 0.5f, h * 0.22f)
-        close()
-    }
-    drawPath(mitre, fill)
-    drawPath(mitre, stroke, style = Stroke(strokeWidth, join = StrokeJoin.Round))
-
-    // Slit
-    val slit = Path().apply {
-        moveTo(w * 0.48f, h * 0.28f)
-        lineTo(w * 0.58f, h * 0.38f)
-    }
-    drawPath(slit, stroke, style = Stroke(strokeWidth * 1.1f, cap = StrokeCap.Round))
-
-    // Pedestal
-    val base = Path().apply {
-        moveTo(w * 0.24f, h * 0.80f)
-        lineTo(w * 0.76f, h * 0.80f)
-        lineTo(w * 0.80f, h * 0.87f)
-        lineTo(w * 0.20f, h * 0.87f)
-        close()
-    }
-    drawPath(base, fill)
-    drawPath(base, stroke, style = Stroke(strokeWidth, join = StrokeJoin.Round))
-}
-
-private fun DrawScope.drawRook(w: Float, h: Float, fill: Color, stroke: Color, strokeWidth: Float) {
-    // Castle crenellations
-    val rook = Path().apply {
-        moveTo(w * 0.26f, h * 0.24f)
-        lineTo(w * 0.36f, h * 0.24f)
-        lineTo(w * 0.36f, h * 0.32f)
-        lineTo(w * 0.44f, h * 0.32f)
-        lineTo(w * 0.44f, h * 0.24f)
-        lineTo(w * 0.56f, h * 0.24f)
-        lineTo(w * 0.56f, h * 0.32f)
-        lineTo(w * 0.64f, h * 0.32f)
-        lineTo(w * 0.64f, h * 0.24f)
-        lineTo(w * 0.74f, h * 0.24f)
-        lineTo(w * 0.72f, h * 0.42f)
-        lineTo(w * 0.66f, h * 0.45f)
-        lineTo(w * 0.66f, h * 0.78f)
-        lineTo(w * 0.74f, h * 0.82f)
-        lineTo(w * 0.76f, h * 0.88f)
-        lineTo(w * 0.24f, h * 0.88f)
-        lineTo(w * 0.26f, h * 0.82f)
-        lineTo(w * 0.34f, h * 0.78f)
-        lineTo(w * 0.34f, h * 0.45f)
-        lineTo(w * 0.28f, h * 0.42f)
-        close()
-    }
-    drawPath(rook, fill)
-    drawPath(rook, stroke, style = Stroke(strokeWidth, join = StrokeJoin.Round))
-}
-
-private fun DrawScope.drawQueen(w: Float, h: Float, fill: Color, stroke: Color, strokeWidth: Float) {
-    // 5 Crown pearls
-    val pearls = listOf(
-        Offset(w * 0.22f, h * 0.25f),
-        Offset(w * 0.36f, h * 0.20f),
-        Offset(w * 0.50f, h * 0.17f),
-        Offset(w * 0.64f, h * 0.20f),
-        Offset(w * 0.78f, h * 0.25f)
-    )
-    for (p in pearls) {
-        drawCircle(fill, radius = w * 0.04f, center = p)
-        drawCircle(stroke, radius = w * 0.04f, center = p, style = Stroke(strokeWidth * 0.8f))
-    }
-
-    // Queen body
-    val body = Path().apply {
-        moveTo(w * 0.22f, h * 0.28f)
-        lineTo(w * 0.32f, h * 0.42f)
-        lineTo(w * 0.36f, h * 0.24f)
-        lineTo(w * 0.44f, h * 0.42f)
-        lineTo(w * 0.50f, h * 0.20f)
-        lineTo(w * 0.56f, h * 0.42f)
-        lineTo(w * 0.64f, h * 0.24f)
-        lineTo(w * 0.68f, h * 0.42f)
-        lineTo(w * 0.78f, h * 0.28f)
-        cubicTo(w * 0.72f, h * 0.55f, w * 0.66f, h * 0.68f, w * 0.70f, h * 0.80f)
-        lineTo(w * 0.30f, h * 0.80f)
-        cubicTo(w * 0.34f, h * 0.68f, w * 0.28f, h * 0.55f, w * 0.22f, h * 0.28f)
-        close()
-    }
-    drawPath(body, fill)
-    drawPath(body, stroke, style = Stroke(strokeWidth, join = StrokeJoin.Round))
-
-    // Pedestal
-    val base = Path().apply {
-        moveTo(w * 0.22f, h * 0.80f)
-        lineTo(w * 0.78f, h * 0.80f)
-        lineTo(w * 0.82f, h * 0.88f)
-        lineTo(w * 0.18f, h * 0.88f)
-        close()
-    }
-    drawPath(base, fill)
-    drawPath(base, stroke, style = Stroke(strokeWidth, join = StrokeJoin.Round))
-}
-
-private fun DrawScope.drawKing(w: Float, h: Float, fill: Color, stroke: Color, strokeWidth: Float) {
-    // Royal Cross
-    val cross = Path().apply {
-        // Vertical
-        moveTo(w * 0.50f, h * 0.11f)
-        lineTo(w * 0.50f, h * 0.23f)
-        // Horizontal
-        moveTo(w * 0.43f, h * 0.16f)
-        lineTo(w * 0.57f, h * 0.16f)
-    }
-    drawPath(cross, stroke, style = Stroke(strokeWidth * 1.2f, cap = StrokeCap.Round))
-
-    // Crown Dome
-    val crown = Path().apply {
-        moveTo(w * 0.30f, h * 0.32f)
-        cubicTo(w * 0.36f, h * 0.23f, w * 0.64f, h * 0.23f, w * 0.70f, h * 0.32f)
-        cubicTo(w * 0.64f, h * 0.52f, w * 0.68f, h * 0.68f, w * 0.72f, h * 0.80f)
-        lineTo(w * 0.28f, h * 0.80f)
-        cubicTo(w * 0.32f, h * 0.68f, w * 0.36f, h * 0.52f, w * 0.30f, h * 0.32f)
-        close()
-    }
-    drawPath(crown, fill)
-    drawPath(crown, stroke, style = Stroke(strokeWidth, join = StrokeJoin.Round))
-
-    // Crown Band Ribbons
-    val band = Path().apply {
-        moveTo(w * 0.32f, h * 0.48f)
-        cubicTo(w * 0.42f, h * 0.52f, w * 0.58f, h * 0.52f, w * 0.68f, h * 0.48f)
-    }
-    drawPath(band, stroke, style = Stroke(strokeWidth * 0.9f, cap = StrokeCap.Round))
-
-    // Pedestal
-    val base = Path().apply {
-        moveTo(w * 0.20f, h * 0.80f)
-        lineTo(w * 0.80f, h * 0.80f)
-        lineTo(w * 0.84f, h * 0.88f)
-        lineTo(w * 0.16f, h * 0.88f)
-        close()
-    }
-    drawPath(base, fill)
-    drawPath(base, stroke, style = Stroke(strokeWidth, join = StrokeJoin.Round))
 }
