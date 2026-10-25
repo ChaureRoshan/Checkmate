@@ -74,7 +74,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         TimeControlPreset("3m", "Blitz", 3, 0),
         TimeControlPreset("5m", "Blitz", 5, 0),
         TimeControlPreset("10m", "Rapid", 10, 0),
-        TimeControlPreset("15m", "Classical", 15, 10)
+        TimeControlPreset("3|2", "Blitz", 3, 2)
     )
 
     private val _selectedPreset = MutableStateFlow(timeControlPresets[3]) // Default 10m Rapid
@@ -136,6 +136,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var lastPresenceId: String? = null
     private val handledChallenges = mutableSetOf<String>()
     private var clockSyncedFromCloud = false
+    private var activeIncrementSeconds: Int? = null
+
+    /** Online games use the increment the host created the room with, so both players get the same clock. */
+    private fun currentIncrementSeconds(): Int =
+        if (_gameMode.value == GameMode.ONLINE_MULTIPLAYER)
+            activeIncrementSeconds ?: _selectedPreset.value.incrementSeconds
+        else
+            _selectedPreset.value.incrementSeconds
 
     private var multiplayerSession: MultiplayerSession? = null
     private var clockJob: Job? = null
@@ -357,7 +365,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val (code, isHost) = FirebaseRealtimeManager.findOrCreateQuickMatch(
                 guestPlayer,
-                _selectedPreset.value.minutes
+                _selectedPreset.value.minutes,
+                _selectedPreset.value.incrementSeconds
             )
             _roomCode.value = code
             _playerColor.value = if (isHost) PieceColor.WHITE else PieceColor.BLACK
@@ -435,6 +444,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 soundEffects.playVictorySound()
                 onGameEnded("WIN")
             }
+
+            activeIncrementSeconds = cloudRoom.incrementSeconds
 
             // Guest uses the host's time control (before any move is played)
             if (!isHost && !clockSyncedFromCloud && cloudRoom.moveCount == 0) {
@@ -578,6 +589,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         multiplayerSession = null
         _roomCode.value = null
         _isWaitingForOpponent.value = false
+        activeIncrementSeconds = null
         if (wasWaitingHost) {
             viewModelScope.launch { FirebaseRealtimeManager.deleteRoom(code) }
         }
@@ -698,8 +710,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         _legalMoves.value = emptyList()
 
         // Add time increment if applicable
-        if (_selectedPreset.value.incrementSeconds > 0) {
-            val incMs = _selectedPreset.value.incrementSeconds * 1000L
+        if (currentIncrementSeconds() > 0) {
+            val incMs = currentIncrementSeconds() * 1000L
             if (movingPiece.color == PieceColor.WHITE) {
                 _whiteClockMs.value += incMs
             } else {
@@ -765,8 +777,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         _board.value = newBoard
 
         // Add time increment for opponent if applicable
-        if (_selectedPreset.value.incrementSeconds > 0) {
-            val incMs = _selectedPreset.value.incrementSeconds * 1000L
+        if (currentIncrementSeconds() > 0) {
+            val incMs = currentIncrementSeconds() * 1000L
             if (movingPiece.color == PieceColor.WHITE) {
                 _whiteClockMs.value += incMs
             } else {
