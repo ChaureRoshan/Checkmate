@@ -94,21 +94,15 @@ class VoiceChatManager(
             try {
                 val newRoom = LiveKit.create(appContext = context.applicationContext)
                 room = newRoom
-                val result = newRoom.connect(liveKit.serverUrl, token)
-                if (result.isFailure) {
-                    Log.e(tag, "LiveKit connect failed", result.exceptionOrNull())
-                    newRoom.release()
-                    room = null
-                    connectedRoomName = null
-                    _state.update { it.copy(isConnected = false, statusText = "Voice connection failed") }
-                    return@launch
-                }
+            newRoom.connect(liveKit.serverUrl, token)
                 _state.update { it.copy(isConnected = true, statusText = "Voice Connected") }
                 startLevelLoop(newRoom)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.e(tag, "LiveKit connect error", e)
+                try { room?.release() } catch (_: Exception) {}
+room = null
                 connectedRoomName = null
                 _state.update { it.copy(isConnected = false, statusText = "Voice connection failed") }
             }
