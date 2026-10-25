@@ -129,13 +129,6 @@ fun LobbyScreen(
                     fontWeight = FontWeight.ExtraBold,
                     color = Color.White
                 )
-                IconButton(onClick = { showThemeDialog = true }) {
-                    Icon(
-                        imageVector = Icons.Default.Palette,
-                        contentDescription = "Board theme",
-                        tint = Color.White.copy(alpha = 0.7f)
-                    )
-                }
             }
         }
 
