@@ -76,12 +76,10 @@ fun ChessBoardView(
     onSquareClick: (Position) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val (lightColor, darkColor) = when (theme) {
-        BoardTheme.SLATE -> SlateLight to SlateDark
-        BoardTheme.WALNUT -> WalnutLight to WalnutDark
-        BoardTheme.EMERALD -> EmeraldLight to EmeraldDark
-        BoardTheme.MIDNIGHT -> MidnightLight to MidnightDark
-    }
+    // One classic look for everyone: cream + brown squares, flat pieces, no coordinates
+    val lightColor = Color(0xFFEED6B0)
+    val darkColor = Color(0xFFB88762)
+    val highlight = Color(0xFFF6F669)
 
     val kingInCheckPos = if (board.gameStatus == GameStatus.CHECK || board.gameStatus == GameStatus.CHECKMATE) {
         ChessEngine.findKing(board, board.turn)
@@ -102,9 +100,7 @@ fun ChessBoardView(
         modifier = modifier
             .fillMaxWidth()
             .aspectRatio(1f)
-            .shadow(12.dp, RoundedCornerShape(12.dp))
-            .clip(RoundedCornerShape(12.dp))
-            .border(2.dp, ObsidianBorder, RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(4.dp))
     ) {
         val squareSize = maxWidth / 8
 
@@ -134,10 +130,10 @@ fun ChessBoardView(
                                 .background(baseSquareColor)
                                 .drawBehind {
                                     if (isLastMove) {
-                                        drawRect(color = ChampagneGold.copy(alpha = 0.35f))
+                                        drawRect(color = highlight.copy(alpha = 0.5f))
                                     }
                                     if (isSelected) {
-                                        drawRect(color = ChampagneGold.copy(alpha = 0.5f))
+                                        drawRect(color = highlight.copy(alpha = 0.75f))
                                     }
                                     if (isKingInCheck) {
                                         drawRect(color = CrimsonCheck.copy(alpha = pulseAlpha * 0.7f))
@@ -152,40 +148,12 @@ fun ChessBoardView(
                                 .testTag("square_${pos.toAlgebraic()}"),
                             contentAlignment = Alignment.Center
                         ) {
-                            // File and Rank coordinate labels on borders
-                            val showRankLabel = displayCol == 0
-                            val showFileLabel = displayRow == 7
-
-                            if (showRankLabel) {
-                                Text(
-                                    text = "${8 - actualRow}",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isLightSquare) darkColor.copy(alpha = 0.85f) else lightColor.copy(alpha = 0.85f),
-                                    modifier = Modifier
-                                        .align(Alignment.TopStart)
-                                        .padding(start = 3.dp, top = 2.dp)
-                                )
-                            }
-
-                            if (showFileLabel) {
-                                Text(
-                                    text = "${('a'.code + actualCol).toChar()}",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isLightSquare) darkColor.copy(alpha = 0.85f) else lightColor.copy(alpha = 0.85f),
-                                    modifier = Modifier
-                                        .align(Alignment.BottomEnd)
-                                        .padding(end = 3.dp, bottom = 2.dp)
-                                )
-                            }
-
                             // Piece rendering
                             if (piece != null) {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .padding(squareSize * 0.12f)
+                                        .padding(squareSize * 0.04f)
                                 ) {
                                     ChessPieceVisual(piece = piece)
                                 }
@@ -199,7 +167,7 @@ fun ChessBoardView(
                                         modifier = Modifier
                                             .fillMaxSize()
                                             .padding(2.dp)
-                                            .border(3.dp, ChampagneGold.copy(alpha = 0.9f), CircleShape)
+                                            .border(4.dp, Color.Black.copy(alpha = 0.18f), CircleShape)
                                     )
                                 } else {
                                     // Move destination dot
@@ -207,24 +175,11 @@ fun ChessBoardView(
                                         modifier = Modifier
                                             .size(squareSize * 0.28f)
                                             .clip(CircleShape)
-                                            .background(
-                                                if (isLightSquare)
-                                                    darkColor.copy(alpha = 0.45f)
-                                                else
-                                                    lightColor.copy(alpha = 0.55f)
-                                            )
+                                            .background(Color.Black.copy(alpha = 0.18f))
                                     )
                                 }
                             }
 
-                            // Selected border outline
-                            if (isSelected) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .border(2.5.dp, ChampagneGold, RoundedCornerShape(2.dp))
-                                )
-                            }
                         }
                     }
                 }
