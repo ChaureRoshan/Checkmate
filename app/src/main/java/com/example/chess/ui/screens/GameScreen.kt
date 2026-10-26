@@ -172,6 +172,40 @@ fun GameScreen(
     val bottomPlayer = if (topIsMe) opponentWithVoice else playerInfo
 
     val isOnline = gameMode == GameMode.ONLINE_MULTIPLAYER
+
+    // Mic buttons sit next to each player's name (not on the board)
+    val micLive = voiceState.hasPermission && voiceState.isConnected && !voiceState.isMicMuted
+    val opponentMicButton: @Composable () -> Unit = {
+        // Green ring = opponent is speaking. Tap = mute / unmute him.
+        VoiceCornerButton(
+            icon = if (voiceState.isDeafened) Icons.Default.MicOff else Icons.Default.Mic,
+            tint = if (voiceState.isDeafened) CrimsonCheck else Color.White,
+            glowing = voiceState.isOpponentSpeaking,
+            onClick = { viewModel.voiceChatManager.toggleDeafen() },
+            testTag = "opponent_mic_button"
+        )
+    }
+    val myMicButton: @Composable () -> Unit = {
+        // Tap = talk / stop talking. Ring grows with your voice.
+        VoiceCornerButton(
+            icon = if (micLive) Icons.Default.Mic else Icons.Default.MicOff,
+            tint = if (micLive) Color(0xFF81B64C) else Color.White,
+            glowing = micLive,
+            level = if (micLive) voiceState.userAmplitude else 0f,
+            onClick = {
+                if (!voiceState.hasPermission) {
+                    askVoicePermissions()
+                } else {
+                    viewModel.voiceChatManager.toggleMicMute()
+                }
+            },
+            testTag = "mic_button"
+        )
+    }
+    val topMic: (@Composable () -> Unit)? =
+        if (!isOnline) null else if (topIsMe) myMicButton else opponentMicButton
+    val bottomMic: (@Composable () -> Unit)? =
+        if (!isOnline) null else if (topIsMe) opponentMicButton else myMicButton
     val gameRunning = board.gameStatus == GameStatus.ACTIVE || board.gameStatus == GameStatus.CHECK
 
     val statusText = when (board.gameStatus) {
@@ -299,54 +333,20 @@ fun GameScreen(
             isTurn = board.turn == topColor,
             capturedPieces = if (topColor == PieceColor.WHITE) board.capturedByWhite else board.capturedByBlack,
             materialAdvantage = if (topIsMe) playerMaterialDiff else opponentMaterialDiff,
-            isOpponent = !topIsMe
+            isOpponent = !topIsMe,
+            micContent = topMic
         )
 
-        // Board + one mic button in the top corner (opponent) and one in the bottom corner (you)
-        Box(modifier = Modifier.fillMaxWidth()) {
-            ChessBoardView(
-                board = board,
-                selectedPos = selectedPos,
-                legalMoves = legalMoves,
-                perspective = viewColor,
-                theme = theme,
-                onSquareClick = { pos -> viewModel.onSquareSelected(pos) },
-                modifier = Modifier.padding(vertical = 4.dp)
-            )
-
-            if (isOnline) {
-                // Top corner: opponent's voice. Green ring = opponent is speaking. Tap = mute / unmute him.
-                VoiceCornerButton(
-                    icon = if (voiceState.isDeafened) Icons.Default.MicOff else Icons.Default.Mic,
-                    tint = if (voiceState.isDeafened) CrimsonCheck else Color.White,
-                    glowing = voiceState.isOpponentSpeaking,
-                    onClick = { viewModel.voiceChatManager.toggleDeafen() },
-                    testTag = "opponent_mic_button",
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .offset(x = (-2).dp, y = (-8).dp)
-                )
-                // Bottom corner: your mic. Tap = talk / stop talking.
-                val micLive = voiceState.hasPermission && voiceState.isConnected && !voiceState.isMicMuted
-                VoiceCornerButton(
-                    icon = if (micLive) Icons.Default.Mic else Icons.Default.MicOff,
-                    tint = if (micLive) Color(0xFF81B64C) else Color.White,
-                    glowing = micLive,
-                    level = if (micLive) voiceState.userAmplitude else 0f,
-                    onClick = {
-                        if (!voiceState.hasPermission) {
-                            askVoicePermissions()
-                        } else {
-                            viewModel.voiceChatManager.toggleMicMute()
-                        }
-                    },
-                    testTag = "mic_button",
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .offset(x = (-2).dp, y = 8.dp)
-                )
-            }
-        }
+        // Board
+        ChessBoardView(
+            board = board,
+            selectedPos = selectedPos,
+            legalMoves = legalMoves,
+            perspective = viewColor,
+            theme = theme,
+            onSquareClick = { pos -> viewModel.onSquareSelected(pos) },
+            modifier = Modifier.padding(vertical = 4.dp)
+        )
 
         // Player card at the bottom (you normally)
         PlayerCardView(
@@ -356,7 +356,8 @@ fun GameScreen(
             isTurn = board.turn == viewColor,
             capturedPieces = if (viewColor == PieceColor.WHITE) board.capturedByWhite else board.capturedByBlack,
             materialAdvantage = if (topIsMe) opponentMaterialDiff else playerMaterialDiff,
-            isOpponent = topIsMe
+            isOpponent = topIsMe,
+            micContent = bottomMic
         )
 
         // Voice status (online games only) - one plain line
@@ -735,7 +736,7 @@ private fun VoiceCornerButton(
 ) {
     Box(
         modifier = modifier
-            .size(40.dp)
+            .size(34.dp)
             .clip(CircleShape)
             .background(Color.Black.copy(alpha = 0.72f))
             .border(
@@ -751,7 +752,7 @@ private fun VoiceCornerButton(
             imageVector = icon,
             contentDescription = null,
             tint = tint,
-            modifier = Modifier.size(22.dp)
+            modifier = Modifier.size(19.dp)
         )
     }
 }
