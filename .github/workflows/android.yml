@@ -8,7 +8,7 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -33,29 +33,54 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      # 4. Generate debug keystore
-      - name: Generate debug keystore
+      # 4. Debug keystore. Created once, then reused for every build, so the app's SHA-1
+      #    never changes (Google sign-in needs a fixed SHA-1).
+      - name: Debug keystore
         run: |
-          keytool -genkeypair \
-            -v \
-            -keystore debug.keystore \
-            -storepass android \
-            -alias androiddebugkey \
-            -keypass android \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -dname "CN=Android Debug,O=Android,C=US"
+          if [ -f keystore/debug.keystore ]; then
+            cp keystore/debug.keystore debug.keystore
+          else
+            keytool -genkeypair \
+              -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+            mkdir -p keystore
+            cp debug.keystore keystore/debug.keystore
+            echo "NEW_KEYSTORE=true" >> "$GITHUB_ENV"
+          fi
+          {
+            echo "### App signing SHA-1 (put this in Google Cloud -> Android OAuth client)"
+            keytool -list -v -keystore debug.keystore -storepass android -alias androiddebugkey | grep -E "SHA1:|SHA-1:"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # 4a. First run only: save the keystore into the repo so the next builds reuse it
+      - name: Save keystore to repo
+        if: env.NEW_KEYSTORE == 'true'
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -f keystore/debug.keystore
+          git commit -m "Add fixed debug keystore"
+          git pull --rebase origin main
+          git push origin HEAD:main
 
       # 4b. Voice chat keys from GitHub repo secrets (Settings > Secrets > Actions)
       - name: Create .env
         env:
           LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
           LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+          GOOGLE_WEB_CLIENT_ID: ${{ secrets.GOOGLE_WEB_CLIENT_ID }}
         run: |
           {
             echo "LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-YOUR_LIVEKIT_API_KEY}"
             echo "LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-YOUR_LIVEKIT_API_SECRET}"
+            echo "GOOGLE_WEB_CLIENT_ID=${GOOGLE_WEB_CLIENT_ID:-YOUR_GOOGLE_WEB_CLIENT_ID}"
           } > .env
 
       # 5. Build APK
