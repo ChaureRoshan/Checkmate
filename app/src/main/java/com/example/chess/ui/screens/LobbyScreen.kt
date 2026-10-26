@@ -110,6 +110,8 @@ fun LobbyScreen(
     val account by viewModel.account.collectAsState()
     val nameChangesLeft by viewModel.nameChangesLeft.collectAsState()
     var showSignOutConfirm by remember { mutableStateOf(false) }
+    val appContext = androidx.compose.ui.platform.LocalContext.current
+    val authScope = androidx.compose.runtime.rememberCoroutineScope()
     val startGoogleSignIn: () -> Unit = {
         val activity = appContext.findActivity()
         if (activity != null) {
@@ -123,8 +125,6 @@ fun LobbyScreen(
             }
         }
     }
-    val appContext = androidx.compose.ui.platform.LocalContext.current
-    val authScope = androidx.compose.runtime.rememberCoroutineScope()
 
     var showEditNameDialog by remember { mutableStateOf(false) }
     var showJoinRoomDialog by remember { mutableStateOf(false) }
