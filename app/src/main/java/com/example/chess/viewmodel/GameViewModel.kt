@@ -1093,10 +1093,16 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
         // Update Elo and profile
         val profile = _userProfile.value
-        val ratingDelta = when (result) {
-            "WIN" -> 16
-            "LOSS" -> -12
-            else -> 0
+        // Elo changes only in online games against a real player.
+        // Bots and pass & play never change the rating (wins/losses/draws still count).
+        val ratingDelta = if (_gameMode.value != GameMode.ONLINE_MULTIPLAYER) {
+            0
+        } else {
+            when (result) {
+                "WIN" -> 16
+                "LOSS" -> -12
+                else -> 0
+            }
         }
         val newRating = (profile.rating + ratingDelta).coerceAtLeast(400)
         val newWins = if (result == "WIN") profile.wins + 1 else profile.wins
