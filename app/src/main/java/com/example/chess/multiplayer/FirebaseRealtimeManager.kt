@@ -58,6 +58,11 @@ data class CloudRoom(
     val timeoutLoserId: String? = null   // set when a player's clock ran out
 )
 
+data class CloudProfile(
+    val profile: com.example.chess.data.UserProfileEntity,
+    val nameChanges: Int
+)
+
 data class OnlinePlayer(
     val id: String,
     val name: String,
@@ -292,7 +297,7 @@ object FirebaseRealtimeManager {
     }
 
     /** Profile saved for a Google account, so rating and stats follow the person to any phone. */
-    suspend fun getCloudProfile(uid: String): com.example.chess.data.UserProfileEntity? =
+    suspend fun getCloudProfile(uid: String): CloudProfile? =
         withContext(Dispatchers.IO) {
             try {
                 val request = Request.Builder().url("$DATABASE_URL/chess_users/$uid.json").get().build()
@@ -300,13 +305,16 @@ object FirebaseRealtimeManager {
                     val body = response.body?.string()
                     if (!response.isSuccessful || body.isNullOrEmpty() || body == "null") return@withContext null
                     val o = JSONObject(body)
-                    com.example.chess.data.UserProfileEntity(
-                        guestId = "",
-                        displayName = o.optString("displayName", "Player"),
-                        rating = o.optInt("rating", 1200),
-                        wins = o.optInt("wins", 0),
-                        losses = o.optInt("losses", 0),
-                        draws = o.optInt("draws", 0)
+                    CloudProfile(
+                        profile = com.example.chess.data.UserProfileEntity(
+                            guestId = "",
+                            displayName = o.optString("displayName", "Player"),
+                            rating = o.optInt("rating", 1200),
+                            wins = o.optInt("wins", 0),
+                            losses = o.optInt("losses", 0),
+                            draws = o.optInt("draws", 0)
+                        ),
+                        nameChanges = o.optInt("nameChanges", 0)
                     )
                 }
             } catch (e: Exception) {
@@ -314,7 +322,11 @@ object FirebaseRealtimeManager {
             }
         }
 
-    suspend fun putCloudProfile(uid: String, profile: com.example.chess.data.UserProfileEntity): Boolean =
+    suspend fun putCloudProfile(
+        uid: String,
+        profile: com.example.chess.data.UserProfileEntity,
+        nameChanges: Int
+    ): Boolean =
         withContext(Dispatchers.IO) {
             try {
                 val json = JSONObject().apply {
@@ -323,6 +335,7 @@ object FirebaseRealtimeManager {
                     put("wins", profile.wins)
                     put("losses", profile.losses)
                     put("draws", profile.draws)
+                    put("nameChanges", nameChanges)
                 }
                 val request = Request.Builder()
                     .url("$DATABASE_URL/chess_users/$uid.json")
