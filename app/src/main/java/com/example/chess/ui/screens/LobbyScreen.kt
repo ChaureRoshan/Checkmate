@@ -106,6 +106,8 @@ fun LobbyScreen(
     val onlinePlayers by viewModel.onlinePlayers.collectAsState()
     val incomingChallenge by viewModel.incomingChallenge.collectAsState()
     val account by viewModel.account.collectAsState()
+    val nameChangesLeft by viewModel.nameChangesLeft.collectAsState()
+    var showSignOutConfirm by remember { mutableStateOf(false) }
     val appContext = androidx.compose.ui.platform.LocalContext.current
     val authScope = androidx.compose.runtime.rememberCoroutineScope()
 
@@ -221,7 +223,7 @@ fun LobbyScreen(
                         Icon(
                             imageVector = Icons.Default.Edit,
                             contentDescription = "Edit name",
-                            tint = Color.Gray,
+                            tint = if (nameChangesLeft > 0) Color.Gray else Color.Gray.copy(alpha = 0.35f),
                             modifier = Modifier.size(14.dp)
                         )
                     }
@@ -383,7 +385,7 @@ fun LobbyScreen(
                                 }
                             }
                         } else {
-                            viewModel.signOut()
+                            showSignOutConfirm = true
                         }
                     }
                     .padding(horizontal = 14.dp, vertical = 12.dp)
@@ -530,6 +532,223 @@ fun LobbyScreen(
                 GameHistoryCard(game = game)
             }
         }
+    }
+
+    // Change name: only 2 changes per person
+    if (showEditNameDialog) {
+        var newNameInput by remember { mutableStateOf(userProfile.displayName) }
+        val canEdit = nameChangesLeft > 0
+        AlertDialog(
+            onDismissRequest = { showEditNameDialog = false },
+            containerColor = ObsidianSurface,
+            title = {
+                Text(
+                    text = if (canEdit) "Naam badlo" else "Naam badal nahi sakte",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (canEdit) {
+                        Text(
+                            text = "Naam sirf 2 baar badal sakte ho. Abhi $nameChangesLeft chance bacha hai, soch ke likho.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 13.sp
+                        )
+                        OutlinedTextField(
+                            value = newNameInput,
+                            onValueChange = { if (it.length <= 16) newNameInput = it },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = ChessGreen,
+                                unfocusedBorderColor = ObsidianBorder,
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("guest_name_input")
+                        )
+                    } else {
+                        Text(
+                            text = "Naam badalne ke 2 chance khatam ho gaye. Ab naam nahi badal sakte.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                if (canEdit) {
+                    Button(
+                        onClick = {
+                            viewModel.updateGuestDisplayName(newNameInput)
+                            showEditNameDialog = false
+                        },
+                        enabled = newNameInput.trim().isNotEmpty() &&
+                            newNameInput.trim() != userProfile.displayName,
+                        colors = ButtonDefaults.buttonColors(containerColor = ChessGreen, contentColor = Color.White)
+                    ) {
+                        Text("Save", fontWeight = FontWeight.Bold)
+                    }
+                } else {
+                    TextButton(onClick = { showEditNameDialog = false }) {
+                        Text("OK", color = ChessGreen, fontWeight = FontWeight.Bold)
+                    }
+                }
+            },
+            dismissButton = {
+                if (canEdit) {
+                    TextButton(onClick = { showEditNameDialog = false }) {
+                        Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        )
+    }
+
+    // Join a friend's room
+    if (showJoinRoomDialog) {
+        var roomCodeInput by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showJoinRoomDialog = false },
+            containerColor = ObsidianSurface,
+            title = {
+                Text("Room code daalo", color = Color.White, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Dost ne jo code bheja hai wo likho (jaise KNG-482):",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp
+                    )
+                    OutlinedTextField(
+                        value = roomCodeInput,
+                        onValueChange = { roomCodeInput = it.uppercase() },
+                        singleLine = true,
+                        placeholder = { Text("KNG-123", color = Color.Gray) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = ChessGreen,
+                            unfocusedBorderColor = ObsidianBorder,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("room_code_input")
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (roomCodeInput.isNotBlank()) {
+                            viewModel.joinOnlineRoom(roomCodeInput)
+                            showJoinRoomDialog = false
+                            onNavigateToGame()
+                        }
+                    },
+                    enabled = roomCodeInput.trim().length >= 4,
+                    colors = ButtonDefaults.buttonColors(containerColor = ChessGreen, contentColor = Color.White)
+                ) {
+                    Text("Join", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showJoinRoomDialog = false }) {
+                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        )
+    }
+
+    // Bot level
+    if (showBotDifficultyDialog) {
+        AlertDialog(
+            onDismissRequest = { showBotDifficultyDialog = false },
+            containerColor = ObsidianSurface,
+            title = {
+                Text("Bot ka level chuno", color = Color.White, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    val difficulties = listOf(
+                        BotDifficulty.CASUAL to "Novice (800)",
+                        BotDifficulty.TACTICAL to "Adept (1500)",
+                        BotDifficulty.MASTER to "Master (2200)"
+                    )
+                    for ((diff, title) in difficulties) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .border(1.dp, ObsidianBorder, RoundedCornerShape(12.dp))
+                                .clickable {
+                                    viewModel.startVsBot(diff)
+                                    showBotDifficultyDialog = false
+                                    onNavigateToGame()
+                                }
+                                .padding(14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = title,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = "Start",
+                                tint = ChessGreen,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showBotDifficultyDialog = false }) {
+                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        )
+    }
+
+    // Sign out needs a second tap, so it can't happen by accident
+    if (showSignOutConfirm) {
+        AlertDialog(
+            onDismissRequest = { showSignOutConfirm = false },
+            containerColor = ObsidianSurface,
+            title = { Text("Sign out karna hai?", color = Color.White, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    text = "Dobara Google se login karoge to rating aur stats wapas mil jayenge.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.signOut()
+                        showSignOutConfirm = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = CrimsonCheck, contentColor = Color.White)
+                ) {
+                    Text("Sign out", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSignOutConfirm = false }) {
+                    Text("Nahi", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        )
     }
 
     // Incoming direct request from another online player
