@@ -26,11 +26,13 @@ import androidx.compose.ui.platform.LocalContext
 import android.widget.Toast
 import com.example.chess.ui.screens.GameScreen
 import com.example.chess.ui.screens.LobbyScreen
+import com.example.chess.ui.screens.WelcomeScreen
 import com.example.chess.viewmodel.GameViewModel
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.theme.ObsidianBg
 
 enum class Screen {
+    WELCOME,
     LOBBY,
     GAME
 }
@@ -55,7 +57,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             MyApplicationTheme {
-                var currentScreen by remember { mutableStateOf(Screen.LOBBY) }
+                var currentScreen by remember {
+                    mutableStateOf(if (gameViewModel.authManager.welcomeDone) Screen.LOBBY else Screen.WELCOME)
+                }
                 val context = LocalContext.current
                 val notice by gameViewModel.notice.collectAsState()
 
@@ -84,6 +88,12 @@ class MainActivity : ComponentActivity() {
                     ) {
                         Crossfade(targetState = currentScreen, label = "screen_transition") { screen ->
                             when (screen) {
+                                Screen.WELCOME -> {
+                                    WelcomeScreen(
+                                        viewModel = gameViewModel,
+                                        onContinue = { currentScreen = Screen.LOBBY }
+                                    )
+                                }
                                 Screen.LOBBY -> {
                                     LobbyScreen(
                                         viewModel = gameViewModel,
