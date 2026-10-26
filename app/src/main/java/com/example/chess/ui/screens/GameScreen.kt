@@ -1,6 +1,7 @@
 package com.example.chess.ui.screens
 
 import android.Manifest
+import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -48,6 +49,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -95,6 +97,7 @@ fun GameScreen(
     val gameMode by viewModel.gameMode.collectAsState()
     val theme by viewModel.boardTheme.collectAsState()
     val playerColor by viewModel.playerColor.collectAsState()
+    val boardFlipped by viewModel.boardFlipped.collectAsState()
     val whiteClockMs by viewModel.whiteClockMs.collectAsState()
     val blackClockMs by viewModel.blackClockMs.collectAsState()
     val pendingPromotion by viewModel.pendingPromotion.collectAsState()
@@ -112,10 +115,21 @@ fun GameScreen(
     val clipboardManager = LocalClipboardManager.current
 
     val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ ->
         viewModel.voiceChatManager.updatePermissionStatus()
-        if (granted) viewModel.voiceChatManager.toggleMicMute()
+    }
+    val askVoicePermissions = {
+        val wanted = mutableListOf(Manifest.permission.RECORD_AUDIO)
+        // Needed on Android 12+ so audio can use / skip a Bluetooth headset correctly
+        if (Build.VERSION.SDK_INT >= 31) wanted.add(Manifest.permission.BLUETOOTH_CONNECT)
+        permissionLauncher.launch(wanted.toTypedArray())
+    }
+    // Ask for the mic as soon as an online game opens, before the voice room is joined
+    LaunchedEffect(gameMode) {
+        if (gameMode == GameMode.ONLINE_MULTIPLAYER && !viewModel.voiceChatManager.checkPermission()) {
+            askVoicePermissions()
+        }
     }
 
     BackHandler {
@@ -148,6 +162,14 @@ fun GameScreen(
         isGuest = true,
         isSpeaking = voiceState.isRecording || voiceState.isPushToTalk
     )
+
+    // Flip only turns the board and swaps the two cards. Your own colour never changes.
+    val viewColor = if (boardFlipped) opponentColor else playerColor
+    val topColor = viewColor.opposite()
+    val topIsMe = topColor == playerColor
+    val opponentWithVoice = opponent.copy(isSpeaking = voiceState.isOpponentSpeaking)
+    val topPlayer = if (topIsMe) playerInfo else opponentWithVoice
+    val bottomPlayer = if (topIsMe) opponentWithVoice else playerInfo
 
     val isOnline = gameMode == GameMode.ONLINE_MULTIPLAYER
     val gameRunning = board.gameStatus == GameStatus.ACTIVE || board.gameStatus == GameStatus.CHECK
@@ -269,15 +291,15 @@ fun GameScreen(
             }
         }
 
-        // Opponent
+        // Player card at the top (the opponent normally; you, if you turned the board around)
         PlayerCardView(
-            player = opponent.copy(isSpeaking = voiceState.isOpponentSpeaking),
-            color = opponentColor,
-            remainingTimeMs = if (opponentColor == PieceColor.WHITE) whiteClockMs else blackClockMs,
-            isTurn = isOpponentTurn,
-            capturedPieces = if (opponentColor == PieceColor.WHITE) board.capturedByWhite else board.capturedByBlack,
-            materialAdvantage = opponentMaterialDiff,
-            isOpponent = true
+            player = topPlayer,
+            color = topColor,
+            remainingTimeMs = if (topColor == PieceColor.WHITE) whiteClockMs else blackClockMs,
+            isTurn = board.turn == topColor,
+            capturedPieces = if (topColor == PieceColor.WHITE) board.capturedByWhite else board.capturedByBlack,
+            materialAdvantage = if (topIsMe) playerMaterialDiff else opponentMaterialDiff,
+            isOpponent = !topIsMe
         )
 
         // Board + one mic button in the top corner (opponent) and one in the bottom corner (you)
@@ -286,7 +308,7 @@ fun GameScreen(
                 board = board,
                 selectedPos = selectedPos,
                 legalMoves = legalMoves,
-                perspective = playerColor,
+                perspective = viewColor,
                 theme = theme,
                 onSquareClick = { pos -> viewModel.onSquareSelected(pos) },
                 modifier = Modifier.padding(vertical = 4.dp)
@@ -310,9 +332,10 @@ fun GameScreen(
                     icon = if (micLive) Icons.Default.Mic else Icons.Default.MicOff,
                     tint = if (micLive) Color(0xFF81B64C) else Color.White,
                     glowing = micLive,
+                    level = if (micLive) voiceState.userAmplitude else 0f,
                     onClick = {
                         if (!voiceState.hasPermission) {
-                            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            askVoicePermissions()
                         } else {
                             viewModel.voiceChatManager.toggleMicMute()
                         }
@@ -325,24 +348,26 @@ fun GameScreen(
             }
         }
 
-        // You
+        // Player card at the bottom (you normally)
         PlayerCardView(
-            player = playerInfo,
-            color = playerColor,
-            remainingTimeMs = if (playerColor == PieceColor.WHITE) whiteClockMs else blackClockMs,
-            isTurn = isPlayerTurn,
-            capturedPieces = if (playerColor == PieceColor.WHITE) board.capturedByWhite else board.capturedByBlack,
-            materialAdvantage = playerMaterialDiff,
-            isOpponent = false
+            player = bottomPlayer,
+            color = viewColor,
+            remainingTimeMs = if (viewColor == PieceColor.WHITE) whiteClockMs else blackClockMs,
+            isTurn = board.turn == viewColor,
+            capturedPieces = if (viewColor == PieceColor.WHITE) board.capturedByWhite else board.capturedByBlack,
+            materialAdvantage = if (topIsMe) opponentMaterialDiff else playerMaterialDiff,
+            isOpponent = topIsMe
         )
 
         // Voice status (online games only) - one plain line
         if (isOnline) {
             val voiceLine = when {
-                !voiceState.hasPermission -> "Voice: neeche wala mic button dabao aur permission do"
+                !voiceState.hasPermission -> "Mic permission do (neeche wala mic button dabao)"
                 !voiceState.isConnected -> voiceState.statusText
-                voiceState.isMicMuted -> "Voice connected - tumhara mic band hai"
-                else -> "Voice connected - tumhara mic chalu hai"
+                !voiceState.opponentInVoice -> "Samne wala abhi voice se nahi juda"
+                voiceState.isMicMuted -> "Voice juda hai - tumhara mic band hai"
+                voiceState.userAmplitude > 0.08f -> "Tumhari awaaz ja rahi hai"
+                else -> "Mic chalu hai - bolo"
             }
             Text(
                 text = voiceLine,
@@ -705,7 +730,8 @@ private fun VoiceCornerButton(
     glowing: Boolean,
     onClick: () -> Unit,
     testTag: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    level: Float = 0f
 ) {
     Box(
         modifier = modifier
@@ -713,7 +739,7 @@ private fun VoiceCornerButton(
             .clip(CircleShape)
             .background(Color.Black.copy(alpha = 0.72f))
             .border(
-                width = if (glowing) 2.5.dp else 1.dp,
+                width = if (glowing) (2.5f + 5f * level.coerceIn(0f, 1f)).dp else 1.dp,
                 color = if (glowing) Color(0xFF81B64C) else Color.White.copy(alpha = 0.3f),
                 shape = CircleShape
             )
