@@ -75,12 +75,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     val timeControlPresets = listOf(
         TimeControlPreset("1m", "Bullet", 1, 0),
         TimeControlPreset("3m", "Blitz", 3, 0),
+        TimeControlPreset("3|2", "Blitz", 3, 2),
         TimeControlPreset("5m", "Blitz", 5, 0),
-        TimeControlPreset("10m", "Rapid", 10, 0),
-        TimeControlPreset("3|2", "Blitz", 3, 2)
+        TimeControlPreset("10m", "Rapid", 10, 0)
     )
 
-    private val _selectedPreset = MutableStateFlow(timeControlPresets[3]) // Default 10m Rapid
+    private val _selectedPreset = MutableStateFlow(timeControlPresets.first { it.title == "10m" }) // Default 10m Rapid
     val selectedPreset: StateFlow<TimeControlPreset> = _selectedPreset.asStateFlow()
 
     private val _boardFlipped = MutableStateFlow(false)
@@ -756,6 +756,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onSquareSelected(pos: Position) {
+        // Online: no moves until the other player has joined
+        if (_isWaitingForOpponent.value) return
         val currBoard = _board.value
         if (currBoard.gameStatus != GameStatus.ACTIVE && currBoard.gameStatus != GameStatus.CHECK) return
 
@@ -951,6 +953,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 val now = System.currentTimeMillis()
                 val delta = now - lastTickTime
                 lastTickTime = now
+
+                // Online: nobody's clock runs until the other player has joined
+                if (_gameMode.value == GameMode.ONLINE_MULTIPLAYER && _isWaitingForOpponent.value) {
+                    continue
+                }
 
                 val currBoard = _board.value
                 if (currBoard.gameStatus != GameStatus.ACTIVE && currBoard.gameStatus != GameStatus.CHECK) {
