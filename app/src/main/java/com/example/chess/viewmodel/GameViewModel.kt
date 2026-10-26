@@ -1075,6 +1075,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private fun onGameEnded(result: String) {
         clockJob?.cancel()
         botJob?.cancel()
+        // A game counts only after both sides have played at least one move.
+        // Before that: no Elo change, no win/loss/draw, nothing saved in history.
+        if (_board.value.moveHistory.size < 2) {
+            _notice.value = "Game ginti nahi hui: dono taraf se kam se kam 1 chaal zaroori hai. Rating nahi badli."
+            return
+        }
         val durationSeconds = ((System.currentTimeMillis() - matchStartTime) / 1000).coerceAtLeast(1)
         val pgn = _board.value.moveHistory.joinToString(" ") { it.notation }
 
