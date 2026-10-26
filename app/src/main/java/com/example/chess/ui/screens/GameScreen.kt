@@ -98,6 +98,7 @@ fun GameScreen(
     val theme by viewModel.boardTheme.collectAsState()
     val playerColor by viewModel.playerColor.collectAsState()
     val boardFlipped by viewModel.boardFlipped.collectAsState()
+    val account by viewModel.account.collectAsState()
     val whiteClockMs by viewModel.whiteClockMs.collectAsState()
     val blackClockMs by viewModel.blackClockMs.collectAsState()
     val pendingPromotion by viewModel.pendingPromotion.collectAsState()
@@ -159,7 +160,7 @@ fun GameScreen(
         name = userProfile.displayName,
         rating = userProfile.rating,
         avatarIndex = userProfile.avatarIndex,
-        isGuest = true,
+        isGuest = account == null,
         isSpeaking = voiceState.isRecording || voiceState.isPushToTalk
     )
 
@@ -167,7 +168,12 @@ fun GameScreen(
     val viewColor = if (boardFlipped) opponentColor else playerColor
     val topColor = viewColor.opposite()
     val topIsMe = topColor == playerColor
-    val opponentWithVoice = opponent.copy(isSpeaking = voiceState.isOpponentSpeaking)
+    // No "GUEST" label on the opponent (we don't know if he is logged in)
+    val opponentWithVoice = opponent.copy(
+        isSpeaking = voiceState.isOpponentSpeaking,
+        isGuest = false,
+        name = if (isWaitingForOpponent) "Dusra player" else opponent.name
+    )
     val topPlayer = if (topIsMe) playerInfo else opponentWithVoice
     val bottomPlayer = if (topIsMe) opponentWithVoice else playerInfo
 
@@ -216,6 +222,7 @@ fun GameScreen(
         GameStatus.TIMEOUT -> "Time is up"
         GameStatus.DRAW_AGREED -> "Draw agreed"
         GameStatus.ACTIVE -> when {
+            isWaitingForOpponent -> "Dusre player ka intezaar"
             gameMode == GameMode.PASS_AND_PLAY ->
                 if (board.turn == PieceColor.WHITE) "White to move" else "Black to move"
             isPlayerTurn -> "Your turn"
