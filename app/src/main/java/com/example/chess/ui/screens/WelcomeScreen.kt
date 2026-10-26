@@ -184,7 +184,7 @@ fun WelcomeScreen(
 
         Spacer(modifier = Modifier.height(28.dp))
         Text(
-            text = "Guest: koi login nahi, seedha khelo.\nGoogle: rating aur stats kisi bhi phone par mil jayenge.",
+            text = "Guest: koi login nahi, seedha khelo.\nGoogle: pehli baar me account apne aap ban jata hai, alag register nahi karna. Ek baar login ke baad dobara nahi poochega.",
             fontSize = 12.sp,
             lineHeight = 18.sp,
             textAlign = TextAlign.Center,
