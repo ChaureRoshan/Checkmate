@@ -34,6 +34,7 @@ data class VoiceChatState(
     val opponentAmplitude: Float = 0f,
     val isDeafened: Boolean = false,
     val isConnected: Boolean = false,
+    val opponentInVoice: Boolean = false,    // someone else is connected to the same voice room
     val statusText: String = "Voice Ready"
 )
 
@@ -53,6 +54,7 @@ class VoiceChatManager(
     private var connectJob: Job? = null
     private var levelJob: Job? = null
     private var connectedRoomName: String? = null
+    private var pendingConnect: Triple<String, String, String>? = null
 
     private val _state = MutableStateFlow(VoiceChatState(hasPermission = checkPermission()))
     val state: StateFlow<VoiceChatState> = _state.asStateFlow()
@@ -73,6 +75,13 @@ class VoiceChatManager(
                 }
             )
         }
+        // We only join the voice room once the mic is allowed. Joining first and getting the
+        // permission later can leave the microphone silent on some phones.
+        val pending = pendingConnect
+        if (granted && pending != null) {
+            pendingConnect = null
+            connect(pending.first, pending.second, pending.third)
+        }
     }
 
     /** Join the voice room belonging to this chess room. Safe to call repeatedly. */
@@ -80,6 +89,12 @@ class VoiceChatManager(
         val roomName = "chess_" + roomCode.trim().uppercase()
         if (connectedRoomName == roomName) return
         disconnect()
+
+        if (!checkPermission()) {
+            pendingConnect = Triple(roomCode, identity, displayName)
+            _state.update { it.copy(hasPermission = false, statusText = "Mic Permission Required") }
+            return
+        }
 
         val token = liveKit.createToken(roomName, identity, displayName)
         if (token == null) {
@@ -94,7 +109,7 @@ class VoiceChatManager(
             try {
                 val newRoom = LiveKit.create(appContext = context.applicationContext)
                 room = newRoom
-            newRoom.connect(liveKit.serverUrl, token)
+                newRoom.connect(liveKit.serverUrl, token)
                 _state.update { it.copy(isConnected = true, statusText = "Voice Connected") }
                 startLevelLoop(newRoom)
             } catch (e: CancellationException) {
@@ -102,7 +117,7 @@ class VoiceChatManager(
             } catch (e: Exception) {
                 Log.e(tag, "LiveKit connect error", e)
                 try { room?.release() } catch (_: Exception) {}
-room = null
+                room = null
                 connectedRoomName = null
                 _state.update { it.copy(isConnected = false, statusText = "Voice connection failed") }
             }
@@ -110,6 +125,7 @@ room = null
     }
 
     fun disconnect() {
+        pendingConnect = null
         connectJob?.cancel()
         connectJob = null
         levelJob?.cancel()
@@ -125,6 +141,7 @@ room = null
         _state.update {
             it.copy(
                 isConnected = false,
+                opponentInVoice = false,
                 isMicMuted = true,
                 isPushToTalk = false,
                 isRecording = false,
@@ -180,6 +197,11 @@ room = null
         scope.launch {
             try {
                 r.localParticipant.setMicrophoneEnabled(enabled)
+                if (enabled && r.localParticipant.getTrackPublication(Track.Source.MICROPHONE) == null) {
+                    _state.update {
+                        it.copy(isMicMuted = true, isRecording = false, statusText = "Mic start nahi hua, dobara dabao")
+                    }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -210,6 +232,7 @@ room = null
 
                 _state.update {
                     it.copy(
+                        opponentInVoice = remotes.isNotEmpty(),
                         userAmplitude = sqrt(myLevel.coerceIn(0f, 1f)),
                         opponentAmplitude = if (deafened) 0f else sqrt(oppLevel.coerceIn(0f, 1f)),
                         isOpponentSpeaking = oppSpeaking && !deafened
