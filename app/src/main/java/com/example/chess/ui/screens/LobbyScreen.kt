@@ -35,6 +35,8 @@ import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -108,6 +110,19 @@ fun LobbyScreen(
     val account by viewModel.account.collectAsState()
     val nameChangesLeft by viewModel.nameChangesLeft.collectAsState()
     var showSignOutConfirm by remember { mutableStateOf(false) }
+    val startGoogleSignIn: () -> Unit = {
+        val activity = appContext.findActivity()
+        if (activity != null) {
+            authScope.launch {
+                when (val r = viewModel.authManager.signInWithGoogle(activity)) {
+                    is SignInResult.Success -> viewModel.onGoogleSignedIn(r.account)
+                    is SignInResult.Failure ->
+                        android.widget.Toast.makeText(appContext, r.message, android.widget.Toast.LENGTH_LONG).show()
+                    SignInResult.Cancelled -> Unit
+                }
+            }
+        }
+    }
     val appContext = androidx.compose.ui.platform.LocalContext.current
     val authScope = androidx.compose.runtime.rememberCoroutineScope()
 
@@ -153,31 +168,90 @@ fun LobbyScreen(
                         color = Color.White
                     )
                     Text(
-                        text = "Dosto ke saath chess, voice ke saath",
+                        text = "Dosto ke saath chess + voice",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(ObsidianSurface)
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
+                // Profile icon: tap for the account menu (email + sign out, or login for guests)
+                Box {
+                    var showMenu by remember { mutableStateOf(false) }
+                    val acc = account
                     Box(
                         modifier = Modifier
-                            .size(8.dp)
+                            .size(44.dp)
                             .clip(CircleShape)
-                            .background(if (onlinePlayers.isNotEmpty()) ChessGreen else Color.Gray)
-                    )
-                    Text(
-                        text = "${onlinePlayers.size} online",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
+                            .background(if (acc != null) ChessGreen else ObsidianSurface)
+                            .border(1.5.dp, if (acc != null) ChessGreen else ObsidianBorder, CircleShape)
+                            .clickable { showMenu = true }
+                            .testTag("profile_button"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (acc != null) {
+                            Text(
+                                text = (acc.name.firstOrNull() ?: acc.email.firstOrNull() ?: 'G').uppercase(),
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = "Profile",
+                                tint = Color.Gray,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false },
+                        modifier = Modifier.background(ObsidianSurface)
+                    ) {
+                        if (acc != null) {
+                            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                Text(
+                                    text = acc.name,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = acc.email,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text("Sign out", color = CrimsonCheck, fontWeight = FontWeight.Bold) },
+                                onClick = {
+                                    showMenu = false
+                                    showSignOutConfirm = true
+                                }
+                            )
+                        } else {
+                            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                Text(
+                                    text = "Guest",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = "Login nahi hai",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text("Google se login karo", color = ChessGreen, fontWeight = FontWeight.Bold) },
+                                onClick = {
+                                    showMenu = false
+                                    startGoogleSignIn()
+                                }
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -360,65 +434,6 @@ fun LobbyScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-            }
-        }
-
-        // Google account row: sign in (guests) or sign out
-        item {
-            val acc = account
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(ObsidianSurface)
-                    .clickable {
-                        if (acc == null) {
-                            val activity = appContext.findActivity()
-                            if (activity != null) {
-                                authScope.launch {
-                                    when (val r = viewModel.authManager.signInWithGoogle(activity)) {
-                                        is SignInResult.Success -> viewModel.onGoogleSignedIn(r.account)
-                                        is SignInResult.Failure ->
-                                            android.widget.Toast.makeText(appContext, r.message, android.widget.Toast.LENGTH_LONG).show()
-                                        SignInResult.Cancelled -> Unit
-                                    }
-                                }
-                            }
-                        } else {
-                            showSignOutConfirm = true
-                        }
-                    }
-                    .padding(horizontal = 14.dp, vertical = 12.dp)
-                    .testTag("account_row"),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    text = "G",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color(0xFF4285F4)
-                )
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = if (acc == null) "Google se login karo" else acc.email,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Text(
-                        text = if (acc == null) "Rating aur stats kisi bhi phone par mil jayenge"
-                        else "Login hai. Rating aur stats cloud me save hain.",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Text(
-                    text = if (acc == null) "Login" else "Sign out",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (acc == null) ChessGreen else CrimsonCheck
-                )
             }
         }
 
