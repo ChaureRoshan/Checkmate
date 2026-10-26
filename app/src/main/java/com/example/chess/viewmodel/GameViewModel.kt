@@ -128,6 +128,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val _account = MutableStateFlow<GoogleAccount?>(authManager.savedAccount())
     val account: StateFlow<GoogleAccount?> = _account.asStateFlow()
 
+    // Every person can change the name only 2 times
+    private val maxNameChanges = 2
+    private val _nameChangesLeft =
+        MutableStateFlow((maxNameChanges - authManager.nameChangesUsed).coerceAtLeast(0))
+    val nameChangesLeft: StateFlow<Int> = _nameChangesLeft.asStateFlow()
+
     // ---- Online presence / direct challenges (no account needed) ----
     private val _onlinePlayers = MutableStateFlow<List<OnlinePlayer>>(emptyList())
     val onlinePlayers: StateFlow<List<OnlinePlayer>> = _onlinePlayers.asStateFlow()
@@ -202,13 +208,22 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateGuestDisplayName(newName: String) {
-        val trimmed = newName.trim()
-        if (trimmed.isEmpty()) return
+        val trimmed = newName.trim().take(16)
+        if (trimmed.isEmpty() || trimmed == _userProfile.value.displayName) return
+        if (_nameChangesLeft.value <= 0) {
+            _notice.value = "Naam badalne ke 2 chance khatam ho gaye."
+            return
+        }
+        val used = authManager.nameChangesUsed + 1
+        authManager.nameChangesUsed = used
+        _nameChangesLeft.value = (maxNameChanges - used).coerceAtLeast(0)
         val updated = _userProfile.value.copy(displayName = trimmed)
         _userProfile.value = updated
+        _notice.value = if (_nameChangesLeft.value > 0) "Naam badal gaya. 1 chance aur bacha hai."
+        else "Naam badal gaya. Ab naam nahi badal sakte."
         viewModelScope.launch {
             db.userProfileDao().insertOrUpdateProfile(updated)
-            _account.value?.let { FirebaseRealtimeManager.putCloudProfile(it.uid, updated) }
+            _account.value?.let { FirebaseRealtimeManager.putCloudProfile(it.uid, updated, used) }
         }
     }
 
@@ -224,19 +239,24 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val local = _userProfile.value
             val cloud = FirebaseRealtimeManager.getCloudProfile(account.uid)
             val merged = if (cloud != null) {
+                // Existing account: bring back rating, stats, name and used name-changes
+                authManager.nameChangesUsed = cloud.nameChanges
                 local.copy(
-                    displayName = cloud.displayName,
-                    rating = cloud.rating,
-                    wins = cloud.wins,
-                    losses = cloud.losses,
-                    draws = cloud.draws
+                    displayName = cloud.profile.displayName,
+                    rating = cloud.profile.rating,
+                    wins = cloud.profile.wins,
+                    losses = cloud.profile.losses,
+                    draws = cloud.profile.draws
                 )
             } else {
+                // Brand new account: it starts with the Google name and 2 fresh name changes
+                authManager.nameChangesUsed = 0
                 local.copy(displayName = account.name)
             }
+            _nameChangesLeft.value = (maxNameChanges - authManager.nameChangesUsed).coerceAtLeast(0)
             _userProfile.value = merged
             db.userProfileDao().insertOrUpdateProfile(merged)
-            FirebaseRealtimeManager.putCloudProfile(account.uid, merged)
+            FirebaseRealtimeManager.putCloudProfile(account.uid, merged, authManager.nameChangesUsed)
         }
     }
 
@@ -1080,7 +1100,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             db.userProfileDao().insertOrUpdateProfile(updatedProfile)
-            _account.value?.let { FirebaseRealtimeManager.putCloudProfile(it.uid, updatedProfile) }
+            _account.value?.let {
+                FirebaseRealtimeManager.putCloudProfile(it.uid, updatedProfile, authManager.nameChangesUsed)
+            }
             db.gameDao().insertGame(
                 GameRecordEntity(
                     opponentName = _opponent.value.name,
