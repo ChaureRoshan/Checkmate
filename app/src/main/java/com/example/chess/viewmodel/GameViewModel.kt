@@ -80,6 +80,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedPreset = MutableStateFlow(timeControlPresets[3]) // Default 10m Rapid
     val selectedPreset: StateFlow<TimeControlPreset> = _selectedPreset.asStateFlow()
 
+    private val _boardFlipped = MutableStateFlow(false)
+    val boardFlipped: StateFlow<Boolean> = _boardFlipped.asStateFlow()
+
     private val _playerColor = MutableStateFlow(PieceColor.WHITE)
     val playerColor: StateFlow<PieceColor> = _playerColor.asStateFlow()
 
@@ -667,6 +670,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun resetGame(timeMinutes: Int = _selectedPreset.value.minutes) {
+        _boardFlipped.value = false
         _board.value = ChessBoard.initial()
         _selectedPos.value = null
         _legalMoves.value = emptyList()
@@ -990,8 +994,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         _drawOfferedByOpponent.value = false
     }
 
+    /** Only turns the board around for viewing. Which side you play never changes. */
     fun flipBoardPerspective() {
-        _playerColor.value = _playerColor.value.opposite()
+        _boardFlipped.value = !_boardFlipped.value
     }
 
     private fun onGameEnded(result: String) {
