@@ -61,7 +61,8 @@ fun PlayerCardView(
     capturedPieces: List<ChessPiece>,
     materialAdvantage: Int,
     isOpponent: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    micContent: (@Composable () -> Unit)? = null
 ) {
     val totalSeconds = (remainingTimeMs / 1000).coerceAtLeast(0)
     val minutes = totalSeconds / 60
@@ -217,6 +218,11 @@ fun PlayerCardView(
                                 )
                             }
                         }
+                    }
+
+                    // Voice mic button, right beside the player's name
+                    if (micContent != null) {
+                        micContent()
                     }
                 }
 
