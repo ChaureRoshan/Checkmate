@@ -4,6 +4,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.chess.audio.SoundEffects
+import com.example.chess.auth.AuthManager
+import com.example.chess.auth.GoogleAccount
 import com.example.chess.data.ChessDatabase
 import com.example.chess.data.GameRecordEntity
 import com.example.chess.data.UserProfileEntity
@@ -47,6 +49,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val db = ChessDatabase.getDatabase(application)
     val soundEffects = SoundEffects(application)
     val liveKitManager = LiveKitVoiceManager(application)
+    val authManager = AuthManager(application)
     val voiceChatManager = VoiceChatManager(application, liveKitManager)
 
     private val _board = MutableStateFlow(ChessBoard.initial())
@@ -120,6 +123,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _recentGames = MutableStateFlow<List<GameRecordEntity>>(emptyList())
     val recentGames: StateFlow<List<GameRecordEntity>> = _recentGames.asStateFlow()
+
+    // ---- Google account (optional). Guests keep working without it. ----
+    private val _account = MutableStateFlow<GoogleAccount?>(authManager.savedAccount())
+    val account: StateFlow<GoogleAccount?> = _account.asStateFlow()
 
     // ---- Online presence / direct challenges (no account needed) ----
     private val _onlinePlayers = MutableStateFlow<List<OnlinePlayer>>(emptyList())
@@ -201,6 +208,52 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         _userProfile.value = updated
         viewModelScope.launch {
             db.userProfileDao().insertOrUpdateProfile(updated)
+            _account.value?.let { FirebaseRealtimeManager.putCloudProfile(it.uid, updated) }
+        }
+    }
+
+    fun markWelcomeDone() {
+        authManager.welcomeDone = true
+    }
+
+    /** After "Continue with Google": load the saved cloud profile, or upload what this phone already has. */
+    fun onGoogleSignedIn(account: GoogleAccount) {
+        authManager.saveAccount(account)
+        _account.value = account
+        viewModelScope.launch {
+            val local = _userProfile.value
+            val cloud = FirebaseRealtimeManager.getCloudProfile(account.uid)
+            val merged = if (cloud != null) {
+                local.copy(
+                    displayName = cloud.displayName,
+                    rating = cloud.rating,
+                    wins = cloud.wins,
+                    losses = cloud.losses,
+                    draws = cloud.draws
+                )
+            } else {
+                local.copy(displayName = account.name)
+            }
+            _userProfile.value = merged
+            db.userProfileDao().insertOrUpdateProfile(merged)
+            FirebaseRealtimeManager.putCloudProfile(account.uid, merged)
+        }
+    }
+
+    /** Back to a fresh guest on this phone. The Google account's data stays in the cloud. */
+    fun signOut() {
+        authManager.clearAccount()
+        _account.value = null
+        viewModelScope.launch {
+            val fresh = _userProfile.value.copy(
+                displayName = "Guest_${Random.nextInt(1000, 9999)}",
+                rating = 1200,
+                wins = 0,
+                losses = 0,
+                draws = 0
+            )
+            _userProfile.value = fresh
+            db.userProfileDao().insertOrUpdateProfile(fresh)
         }
     }
 
@@ -1027,6 +1080,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             db.userProfileDao().insertOrUpdateProfile(updatedProfile)
+            _account.value?.let { FirebaseRealtimeManager.putCloudProfile(it.uid, updatedProfile) }
             db.gameDao().insertGame(
                 GameRecordEntity(
                     opponentName = _opponent.value.name,
