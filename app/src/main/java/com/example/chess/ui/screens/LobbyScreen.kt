@@ -64,9 +64,16 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
+import com.example.chess.auth.SignInResult
+import com.example.chess.auth.findActivity
 import com.example.chess.data.GameRecordEntity
 import com.example.chess.model.BoardTheme
 import com.example.chess.model.BotDifficulty
+import com.example.chess.model.ChessPiece
+import com.example.chess.model.PieceColor
+import com.example.chess.model.PieceType
+import com.example.chess.ui.components.ChessPieceVisual
 import com.example.chess.multiplayer.OnlinePlayer
 import com.example.chess.viewmodel.GameViewModel
 import com.example.ui.theme.ChampagneGold
@@ -98,6 +105,9 @@ fun LobbyScreen(
     val liveKitState by viewModel.liveKitManager.state.collectAsState()
     val onlinePlayers by viewModel.onlinePlayers.collectAsState()
     val incomingChallenge by viewModel.incomingChallenge.collectAsState()
+    val account by viewModel.account.collectAsState()
+    val appContext = androidx.compose.ui.platform.LocalContext.current
+    val authScope = androidx.compose.runtime.rememberCoroutineScope()
 
     var showEditNameDialog by remember { mutableStateOf(false) }
     var showJoinRoomDialog by remember { mutableStateOf(false) }
@@ -116,29 +126,68 @@ fun LobbyScreen(
         contentPadding = PaddingValues(top = 16.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Header
+        // Header: logo, name, online counter
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    text = "Checkmate",
-                    fontSize = 26.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color.White
-                )
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Brush.linearGradient(listOf(Color(0xFF3A3834), Color(0xFF1F1E1C))))
+                        .border(1.dp, ObsidianBorder, RoundedCornerShape(14.dp))
+                        .padding(6.dp)
+                ) {
+                    ChessPieceVisual(piece = ChessPiece(id = "logo", type = PieceType.KNIGHT, color = PieceColor.WHITE))
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Checkmate",
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "Dosto ke saath chess, voice ke saath",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(ObsidianSurface)
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(if (onlinePlayers.isNotEmpty()) ChessGreen else Color.Gray)
+                    )
+                    Text(
+                        text = "${onlinePlayers.size} online",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
             }
         }
 
-        // Profile (guest, no login)
+        // Profile card
         item {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(18.dp))
                     .background(ObsidianSurface)
+                    .border(1.dp, ObsidianBorder, RoundedCornerShape(18.dp))
                     .clickable { showEditNameDialog = true }
                     .padding(14.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -146,7 +195,7 @@ fun LobbyScreen(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(52.dp)
                         .clip(CircleShape)
                         .background(ChessGreen.copy(alpha = 0.2f)),
                     contentAlignment = Alignment.Center
@@ -155,80 +204,120 @@ fun LobbyScreen(
                         imageVector = Icons.Default.Person,
                         contentDescription = null,
                         tint = ChessGreen,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(28.dp)
                     )
                 }
                 Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = userProfile.displayName,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edit name",
+                            tint = Color.Gray,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
                     Text(
-                        text = userProfile.displayName,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Text(
-                        text = "Rating ${userProfile.rating}  \u2022  ${userProfile.wins}W ${userProfile.losses}L ${userProfile.draws}D",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = "Rating ${userProfile.rating}",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = ChessGreen
                     )
                 }
-                Icon(
-                    imageVector = Icons.Default.Edit,
-                    contentDescription = "Edit name",
-                    tint = Color.Gray,
-                    modifier = Modifier.size(18.dp)
-                )
+                StatPill(label = "W", value = userProfile.wins, color = ChessGreen)
+                StatPill(label = "L", value = userProfile.losses, color = CrimsonCheck)
+                StatPill(label = "D", value = userProfile.draws, color = Color.Gray)
             }
         }
 
-        // Big Play button + time control
+        // Big Play card + time control
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = {
-                        viewModel.startQuickMatch()
-                        onNavigateToGame()
-                    },
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(70.dp)
-                        .testTag("quick_match_button"),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = ChessGreen,
-                        contentColor = Color.White
-                    )
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(Brush.linearGradient(listOf(Color(0xFF8CC152), Color(0xFF5F9A2F))))
+                        .clickable {
+                            viewModel.startQuickMatch()
+                            onNavigateToGame()
+                        }
+                        .padding(20.dp)
+                        .testTag("quick_match_button")
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(text = "Play", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
-                        Text(
-                            text = "${selectedPreset.title} \u2022 ${selectedPreset.category} \u2022 Online",
-                            fontSize = 12.sp,
-                            color = Color.White.copy(alpha = 0.85f)
-                        )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Play online",
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "${selectedPreset.title} • ${selectedPreset.category} • random opponent",
+                                fontSize = 12.sp,
+                                color = Color.White.copy(alpha = 0.9f)
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(54.dp)
+                                .clip(CircleShape)
+                                .background(Color.White),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = "Play",
+                                tint = Color(0xFF5F9A2F),
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
                     }
                 }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     for (preset in viewModel.timeControlPresets) {
                         val isSelected = preset == selectedPreset
-                        Box(
+                        Column(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(20.dp))
+                                .clip(RoundedCornerShape(14.dp))
                                 .background(if (isSelected) ChessGreen else ObsidianSurface)
+                                .border(
+                                    1.dp,
+                                    if (isSelected) ChessGreen else ObsidianBorder,
+                                    RoundedCornerShape(14.dp)
+                                )
                                 .clickable { viewModel.selectTimeControl(preset) }
                                 .padding(vertical = 9.dp)
                                 .testTag("time_control_${preset.title}"),
-                            contentAlignment = Alignment.Center
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
                                 text = preset.title,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.7f)
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.85f)
+                            )
+                            Text(
+                                text = preset.category,
+                                fontSize = 9.sp,
+                                color = if (isSelected) Color.White.copy(alpha = 0.9f) else Color.Gray
                             )
                         }
                     }
@@ -272,35 +361,93 @@ fun LobbyScreen(
             }
         }
 
-        // Online players
+        // Google account row: sign in (guests) or sign out
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(9.dp)
-                            .clip(CircleShape)
-                            .background(if (onlinePlayers.isNotEmpty()) ChessGreen else Color.Gray)
-                    )
+            val acc = account
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(ObsidianSurface)
+                    .clickable {
+                        if (acc == null) {
+                            val activity = appContext.findActivity()
+                            if (activity != null) {
+                                authScope.launch {
+                                    when (val r = viewModel.authManager.signInWithGoogle(activity)) {
+                                        is SignInResult.Success -> viewModel.onGoogleSignedIn(r.account)
+                                        is SignInResult.Failure ->
+                                            android.widget.Toast.makeText(appContext, r.message, android.widget.Toast.LENGTH_LONG).show()
+                                        SignInResult.Cancelled -> Unit
+                                    }
+                                }
+                            }
+                        } else {
+                            viewModel.signOut()
+                        }
+                    }
+                    .padding(horizontal = 14.dp, vertical = 12.dp)
+                    .testTag("account_row"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "G",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color(0xFF4285F4)
+                )
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Online now (${onlinePlayers.size})",
-                        fontSize = 16.sp,
+                        text = if (acc == null) "Google se login karo" else acc.email,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
+                    Text(
+                        text = if (acc == null) "Rating aur stats kisi bhi phone par mil jayenge"
+                        else "Login hai. Rating aur stats cloud me save hain.",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
+                Text(
+                    text = if (acc == null) "Login" else "Sign out",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (acc == null) ChessGreen else CrimsonCheck
+                )
+            }
+        }
+
+        // Online players
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SectionTitle(title = "Online now", count = onlinePlayers.size)
 
                 if (onlinePlayers.isEmpty()) {
-                    Text(
-                        text = "Abhi koi aur online nahi hai. Dost ko app khulwao, wo yahan dikhega.",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.testTag("no_online_players")
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(ObsidianSurface)
+                            .padding(14.dp)
+                            .testTag("no_online_players"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Group,
+                            contentDescription = null,
+                            tint = Color.Gray,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Text(
+                            text = "Abhi koi aur online nahi hai. Dost ko app khulwao, wo yahan dikhega.",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 } else {
                     onlinePlayers.forEach { player ->
                         OnlinePlayerRow(
@@ -315,49 +462,49 @@ fun LobbyScreen(
             }
         }
 
-        // More ways to play
+        // More ways to play: 2 x 2 tiles
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "More ways to play",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(ObsidianSurface)
-                ) {
-                    PlayOptionRow(
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SectionTitle(title = "More ways to play")
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    PlayTile(
+                        modifier = Modifier.weight(1f),
                         icon = Icons.Default.AddCircleOutline,
                         title = "Play a friend",
-                        subtitle = "Room code banao, dost ko bhejo",
+                        subtitle = "Room code banao",
+                        accent = ChessGreen,
                         onClick = {
                             viewModel.createOnlineRoom(timeMinutes = selectedPreset.minutes)
                             onNavigateToGame()
                         },
                         testTag = "host_room_button"
                     )
-                    PlayOptionRow(
+                    PlayTile(
+                        modifier = Modifier.weight(1f),
                         icon = Icons.Default.Group,
                         title = "Join with code",
-                        subtitle = "Dost ka room code daalo",
+                        subtitle = "Dost ka code daalo",
+                        accent = ElectricCyan,
                         onClick = { showJoinRoomDialog = true },
                         testTag = "join_room_button"
                     )
-                    PlayOptionRow(
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    PlayTile(
+                        modifier = Modifier.weight(1f),
                         icon = Icons.Default.SmartToy,
                         title = "Play bots",
-                        subtitle = "Novice, Adept ya Master",
+                        subtitle = "Novice se Master tak",
+                        accent = ChampagneGold,
                         onClick = { showBotDifficultyDialog = true },
                         testTag = "vs_bot_button"
                     )
-                    PlayOptionRow(
+                    PlayTile(
+                        modifier = Modifier.weight(1f),
                         icon = Icons.Default.Psychology,
                         title = "Pass & play",
                         subtitle = "2 players, 1 phone",
+                        accent = Color(0xFFB39DDB),
                         onClick = {
                             viewModel.startPassAndPlay()
                             onNavigateToGame()
@@ -369,14 +516,7 @@ fun LobbyScreen(
         }
 
         // Recent games
-        item {
-            Text(
-                text = "Recent games",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
-        }
+        item { SectionTitle(title = "Recent games") }
         if (recentGames.isEmpty()) {
             item {
                 Text(
@@ -390,236 +530,6 @@ fun LobbyScreen(
                 GameHistoryCard(game = game)
             }
         }
-    }
-
-    // Edit Name Dialog
-    if (showEditNameDialog) {
-        var newNameInput by remember { mutableStateOf(userProfile.displayName) }
-        AlertDialog(
-            onDismissRequest = { showEditNameDialog = false },
-            containerColor = ObsidianSurface,
-            title = {
-                Text("Edit Guest Name", color = ChampagneGold, fontWeight = FontWeight.Bold)
-            },
-            text = {
-                Column {
-                    Text(
-                        "Choose your display name for matches:",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 13.sp,
-                        modifier = Modifier.padding(bottom = 12.dp)
-                    )
-                    OutlinedTextField(
-                        value = newNameInput,
-                        onValueChange = { if (it.length <= 16) newNameInput = it },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = ChampagneGold,
-                            unfocusedBorderColor = ObsidianBorder,
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("guest_name_input")
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.updateGuestDisplayName(newNameInput)
-                        showEditNameDialog = false
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = ChampagneGold, contentColor = Color.Black)
-                ) {
-                    Text("Save", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showEditNameDialog = false }) {
-                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        )
-    }
-
-    // Join Room Dialog
-    if (showJoinRoomDialog) {
-        var roomCodeInput by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { showJoinRoomDialog = false },
-            containerColor = ObsidianSurface,
-            title = {
-                Text("Join Match Room", color = ChampagneGold, fontWeight = FontWeight.Bold)
-            },
-            text = {
-                Column {
-                    Text(
-                        "Enter the 6-character room code from your opponent (e.g. KNG-482):",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 13.sp,
-                        modifier = Modifier.padding(bottom = 12.dp)
-                    )
-                    OutlinedTextField(
-                        value = roomCodeInput,
-                        onValueChange = { roomCodeInput = it.uppercase() },
-                        singleLine = true,
-                        placeholder = { Text("KNG-123", color = Color.Gray) },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = ChampagneGold,
-                            unfocusedBorderColor = ObsidianBorder,
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("room_code_input")
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (roomCodeInput.isNotBlank()) {
-                            viewModel.joinOnlineRoom(roomCodeInput)
-                            showJoinRoomDialog = false
-                            onNavigateToGame()
-                        }
-                    },
-                    enabled = roomCodeInput.trim().length >= 4,
-                    colors = ButtonDefaults.buttonColors(containerColor = ChampagneGold, contentColor = Color.Black)
-                ) {
-                    Text("Join Match", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showJoinRoomDialog = false }) {
-                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        )
-    }
-
-    // Bot Difficulty Picker Dialog
-    if (showBotDifficultyDialog) {
-        AlertDialog(
-            onDismissRequest = { showBotDifficultyDialog = false },
-            containerColor = ObsidianSurface,
-            title = {
-                Text("Select Bot Difficulty", color = ChampagneGold, fontWeight = FontWeight.Bold)
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    val difficulties = listOf(
-                        BotDifficulty.CASUAL to "Casual Novice (800 ELO)",
-                        BotDifficulty.TACTICAL to "Tactical Adept (1500 ELO)",
-                        BotDifficulty.MASTER to "Grandmaster AI (2200 ELO)"
-                    )
-                    for ((diff, title) in difficulties) {
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .border(1.dp, ObsidianBorder, RoundedCornerShape(10.dp))
-                                .clickable {
-                                    viewModel.startVsBot(diff)
-                                    showBotDifficultyDialog = false
-                                    onNavigateToGame()
-                                }
-                                .padding(14.dp),
-                            color = ObsidianSurfaceVariant
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = title,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                                Icon(
-                                    imageVector = Icons.Default.PlayArrow,
-                                    contentDescription = "Start",
-                                    tint = ChampagneGold,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { showBotDifficultyDialog = false }) {
-                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        )
-    }
-
-    // Board Theme Selector Dialog
-    if (showThemeDialog) {
-        AlertDialog(
-            onDismissRequest = { showThemeDialog = false },
-            containerColor = ObsidianSurface,
-            title = {
-                Text("Choose Board Theme", color = ChampagneGold, fontWeight = FontWeight.Bold)
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    for (theme in BoardTheme.values()) {
-                        val isSelected = theme == currentTheme
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .border(
-                                    1.5.dp,
-                                    if (isSelected) ChampagneGold else ObsidianBorder,
-                                    RoundedCornerShape(10.dp)
-                                )
-                                .clickable {
-                                    viewModel.setBoardTheme(theme)
-                                    showThemeDialog = false
-                                }
-                                .padding(14.dp),
-                            color = if (isSelected) ChampagneGold.copy(alpha = 0.15f) else ObsidianSurfaceVariant
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = theme.displayName,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isSelected) ChampagneGold else Color.White
-                                )
-                                if (isSelected) {
-                                    Text(
-                                        text = "ACTIVE",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = ChampagneGold
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { showThemeDialog = false }) {
-                    Text("Done", color = ChampagneGold)
-                }
-            }
-        )
     }
 
     // Incoming direct request from another online player
@@ -773,6 +683,97 @@ fun LobbyScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun SectionTitle(title: String, count: Int? = null) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = title,
+            fontSize = 17.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White
+        )
+        if (count != null) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(ChessGreen.copy(alpha = 0.18f))
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "$count",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = ChessGreen
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatPill(label: String, value: Int, color: Color) {
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(color.copy(alpha = 0.12f))
+            .padding(horizontal = 9.dp, vertical = 5.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(text = "$value", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = color)
+        Text(text = label, fontSize = 10.sp, color = color.copy(alpha = 0.8f))
+    }
+}
+
+@Composable
+private fun PlayTile(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    accent: Color,
+    onClick: () -> Unit,
+    testTag: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .height(128.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(ObsidianSurface)
+            .border(1.dp, ObsidianBorder, RoundedCornerShape(18.dp))
+            .clickable { onClick() }
+            .padding(14.dp)
+            .testTag(testTag),
+        verticalArrangement = Arrangement.SpaceBetween
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(accent.copy(alpha = 0.16f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = accent,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+        Column {
+            Text(text = title, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Text(
+                text = subtitle,
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 
