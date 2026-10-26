@@ -42,6 +42,11 @@ class AuthManager(context: Context) {
         get() = prefs.getBoolean("welcome_done", false)
         set(value) { prefs.edit().putBoolean("welcome_done", value).apply() }
 
+    /** How many times the name was changed (max 2 per person). */
+    var nameChangesUsed: Int
+        get() = prefs.getInt("name_changes_used", 0)
+        set(value) { prefs.edit().putInt("name_changes_used", value).apply() }
+
     fun savedAccount(): GoogleAccount? {
         val uid = prefs.getString("uid", null) ?: return null
         return GoogleAccount(
