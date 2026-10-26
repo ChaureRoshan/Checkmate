@@ -291,6 +291,49 @@ object FirebaseRealtimeManager {
         }
     }
 
+    /** Profile saved for a Google account, so rating and stats follow the person to any phone. */
+    suspend fun getCloudProfile(uid: String): com.example.chess.data.UserProfileEntity? =
+        withContext(Dispatchers.IO) {
+            try {
+                val request = Request.Builder().url("$DATABASE_URL/chess_users/$uid.json").get().build()
+                httpClient.newCall(request).execute().use { response ->
+                    val body = response.body?.string()
+                    if (!response.isSuccessful || body.isNullOrEmpty() || body == "null") return@withContext null
+                    val o = JSONObject(body)
+                    com.example.chess.data.UserProfileEntity(
+                        guestId = "",
+                        displayName = o.optString("displayName", "Player"),
+                        rating = o.optInt("rating", 1200),
+                        wins = o.optInt("wins", 0),
+                        losses = o.optInt("losses", 0),
+                        draws = o.optInt("draws", 0)
+                    )
+                }
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+    suspend fun putCloudProfile(uid: String, profile: com.example.chess.data.UserProfileEntity): Boolean =
+        withContext(Dispatchers.IO) {
+            try {
+                val json = JSONObject().apply {
+                    put("displayName", profile.displayName)
+                    put("rating", profile.rating)
+                    put("wins", profile.wins)
+                    put("losses", profile.losses)
+                    put("draws", profile.draws)
+                }
+                val request = Request.Builder()
+                    .url("$DATABASE_URL/chess_users/$uid.json")
+                    .put(json.toString().toRequestBody(jsonMediaType))
+                    .build()
+                httpClient.newCall(request).execute().use { it.isSuccessful }
+            } catch (e: Exception) {
+                false
+            }
+        }
+
     suspend fun findOrCreateQuickMatch(
         guest: PlayerInfo,
         timeMinutes: Int,
